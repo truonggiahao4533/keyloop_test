@@ -1,0 +1,84 @@
+package repository
+
+import (
+	"context"
+	"time"
+
+	"keyloop-test/internal/domain"
+)
+
+type CustomerRepository interface {
+	GetCustomer(ctx context.Context, id string) (domain.Customer, error)
+	ListCustomers(ctx context.Context) ([]domain.Customer, error)
+	CreateCustomer(ctx context.Context, customer *domain.Customer) error
+	UpdateCustomer(ctx context.Context, customer *domain.Customer) error
+	DeleteCustomer(ctx context.Context, id string) error
+}
+
+type VehicleRepository interface {
+	GetVehicle(ctx context.Context, id string) (domain.Vehicle, error)
+	ListVehiclesByCustomer(ctx context.Context, customerID string) ([]domain.Vehicle, error)
+	CreateVehicle(ctx context.Context, vehicle *domain.Vehicle) error
+	UpdateVehicle(ctx context.Context, vehicle *domain.Vehicle) error
+	DeleteVehicle(ctx context.Context, id string) error
+}
+
+type DealershipRepository interface {
+	GetDealership(ctx context.Context, id string) (domain.Dealership, error)
+	ListDealerships(ctx context.Context) ([]domain.Dealership, error)
+	CreateDealership(ctx context.Context, dealership *domain.Dealership) error
+	UpdateDealership(ctx context.Context, dealership *domain.Dealership) error
+	DeleteDealership(ctx context.Context, id string) error
+}
+
+type ServiceBayRepository interface {
+	GetServiceBay(ctx context.Context, id string) (domain.ServiceBay, error)
+	ListServiceBaysByDealership(ctx context.Context, dealershipID string) ([]domain.ServiceBay, error)
+	CreateServiceBay(ctx context.Context, bay *domain.ServiceBay) error
+	UpdateServiceBay(ctx context.Context, bay *domain.ServiceBay) error
+	DeleteServiceBay(ctx context.Context, id string) error
+}
+
+type ServiceDefinitionRepository interface {
+	GetServiceDefinition(ctx context.Context, id string) (domain.ServiceDefinition, error)
+	ListServiceDefinitions(ctx context.Context) ([]domain.ServiceDefinition, error)
+	CreateServiceDefinition(ctx context.Context, def *domain.ServiceDefinition) error
+	UpdateServiceDefinition(ctx context.Context, def *domain.ServiceDefinition) error
+	DeleteServiceDefinition(ctx context.Context, id string) error
+}
+
+type TechnicianRepository interface {
+	GetTechnician(ctx context.Context, id string) (domain.Technician, error)
+	ListTechniciansByDealership(ctx context.Context, dealershipID string) ([]domain.Technician, error)
+	CreateTechnician(ctx context.Context, tech *domain.Technician) error
+	UpdateTechnician(ctx context.Context, tech *domain.Technician) error
+	DeleteTechnician(ctx context.Context, id string) error
+}
+
+type TechnicianSkillRepository interface {
+	ListTechnicianSkills(ctx context.Context, technicianID string) ([]domain.TechnicianSkill, error)
+	CreateTechnicianSkill(ctx context.Context, skill *domain.TechnicianSkill) error
+	DeleteTechnicianSkill(ctx context.Context, technicianID string, skill domain.ServiceType) error
+}
+
+type AppointmentRepository interface {
+	GetAppointment(ctx context.Context, id string) (domain.Appointment, error)
+	ListAppointmentsByDealership(ctx context.Context, dealershipID string) ([]domain.Appointment, error)
+	ListAppointmentsByCustomer(ctx context.Context, customerID string) ([]domain.Appointment, error)
+	CreateAppointment(ctx context.Context, appt *domain.Appointment) error
+	UpdateAppointmentStatus(ctx context.Context, id string, status domain.AppointmentStatus) error
+	DeleteAppointment(ctx context.Context, id string) error
+}
+
+type ReservationRepository interface {
+	GetReservation(ctx context.Context, id string) (domain.Reservation, error)
+	ListReservationsByDealership(ctx context.Context, dealershipID string) ([]domain.Reservation, error)
+	CreateReservation(ctx context.Context, res *domain.Reservation) error
+	UpdateReservationStatus(ctx context.Context, id string, status string) error
+	DeleteExpiredReservations(ctx context.Context) error
+	DeleteReservation(ctx context.Context, id string) error
+}
+
+type AvailabilityRepository interface {
+	GetAvailableSlots(ctx context.Context, dealershipID string, serviceType domain.ServiceType, date time.Time, duration time.Duration) ([]time.Time, error)
+}
