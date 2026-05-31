@@ -23,13 +23,21 @@ type Appointment struct {
 	DealershipID string
 	ServiceBayID string
 	TechnicianID string
-	ServiceType  ServiceType
+	Services     []ServiceSnapshot
 	Status       AppointmentStatus
 	StartTime    time.Time
 	EndTime      time.Time
 	Notes        string
+	DeletedAt    time.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+}
+
+type ServiceSnapshot struct {
+	ServiceID        string
+	Name             string
+	EstimatedMinutes int
+	Price            float64
 }
 
 // Duration returns the total duration of the appointment.

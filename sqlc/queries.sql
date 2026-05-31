@@ -1,8 +1,8 @@
 -- name: GetAvailableSlots :many
 SELECT slot::TIMESTAMP WITH TIME ZONE
 FROM generate_series(
-  sqlc.arg(start_datetime)::TIMESTAMP WITH TIME ZONE, 
-  sqlc.arg(end_datetime)::TIMESTAMP WITH TIME ZONE, 
+  sqlc.arg(start_datetime)::TIMESTAMP WITH TIME ZONE,
+  sqlc.arg(end_datetime)::TIMESTAMP WITH TIME ZONE,
   '30 minutes'::INTERVAL
 ) AS slot
 WHERE
@@ -11,60 +11,34 @@ WHERE
     SELECT 1 FROM service_bays b
     WHERE b.dealership_id = sqlc.arg(dealership_id)
     AND b.id NOT IN (
-      SELECT bay_id FROM appointments
-      WHERE tstzrange(start_time, end_time) &&
-            tstzrange(slot, slot + sqlc.arg(duration)::INTERVAL)
-    )
-    AND b.id NOT IN (
-      SELECT bay_id FROM reservations
-      WHERE status = 'PENDING' AND expires_at > NOW()
+      SELECT service_bay_id FROM appointments
+      WHERE status IN ('pending', 'confirmed')
       AND tstzrange(start_time, end_time) &&
             tstzrange(slot, slot + sqlc.arg(duration)::INTERVAL)
     )
   )
   AND
-  -- At least 1 qualified technician is free for the full duration
+  -- At least 1 technician who has ALL required skills and is free for the full duration
   EXISTS (
     SELECT 1 FROM technicians t
-    JOIN technician_skills q ON q.technician_id = t.id
     WHERE t.dealership_id = sqlc.arg(dealership_id)
-    AND q.skill = sqlc.arg(service_type)
-    AND t.id NOT IN (
-      SELECT technician_id FROM appointments
-      WHERE tstzrange(start_time, end_time) &&
-            tstzrange(slot, slot + sqlc.arg(duration)::INTERVAL)
+    AND t.id IN (
+      -- tech must have ALL required skills
+      SELECT technician_id FROM technician_skills
+      WHERE skill = ANY(sqlc.arg(service_types)::text[])
+      GROUP BY technician_id
+      HAVING COUNT(DISTINCT skill) = cardinality(sqlc.arg(service_types)::text[])
     )
     AND t.id NOT IN (
-      SELECT technician_id FROM reservations
-      WHERE status = 'PENDING' AND expires_at > NOW()
+      SELECT technician_id FROM appointments
+      WHERE status IN ('pending', 'confirmed')
       AND tstzrange(start_time, end_time) &&
             tstzrange(slot, slot + sqlc.arg(duration)::INTERVAL)
     )
-  );
+  )
+ORDER BY slot ASC;
 
--- name: CreateReservation :one
-INSERT INTO reservations (
-  id, bay_id, technician_id, start_time, end_time, user_id, expires_at, status
-) VALUES (
-  $1, $2, $3, $4, $5, $6, $7, $8
-) RETURNING *;
-
--- name: DeleteExpiredReservations :exec
-DELETE FROM reservations
-WHERE expires_at < NOW()
-AND status = 'PENDING';
-
--- name: DeleteReservation :exec
-DELETE FROM reservations
-WHERE id = $1;
-
--- name: CreateAppointment :one
-INSERT INTO appointments (
-  id, customer_id, vehicle_id, dealership_id, service_bay_id, technician_id, service_type, status, start_time, end_time, notes
-) VALUES (
-  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
-) RETURNING *;
-
+--
 
 -- =========================================================================
 -- CUSTOMERS
@@ -141,9 +115,9 @@ SELECT * FROM dealerships ORDER BY name ASC;
 
 -- name: CreateDealership :one
 INSERT INTO dealerships (
-  id, name, address, city, phone, is_active
+  id, name, address, city, phone, is_active, open_time, close_time
 ) VALUES (
-  $1, $2, $3, $4, $5, $6
+  $1, $2, $3, $4, $5, $6, $7, $8
 ) RETURNING *;
 
 -- name: UpdateDealership :one
@@ -153,6 +127,8 @@ SET name = $2,
     city = $4,
     phone = $5,
     is_active = $6,
+    open_time = $7,
+    close_time = $8,
     updated_at = NOW()
 WHERE id = $1
 RETURNING *;
@@ -203,7 +179,7 @@ SELECT * FROM service_definitions ORDER BY name ASC;
 
 -- name: CreateServiceDefinition :one
 INSERT INTO service_definitions (
-  id, name, type, description, estimated_minutes, is_active
+  id, name, description, estimated_minutes, price, is_active
 ) VALUES (
   $1, $2, $3, $4, $5, $6
 ) RETURNING *;
@@ -211,9 +187,9 @@ INSERT INTO service_definitions (
 -- name: UpdateServiceDefinition :one
 UPDATE service_definitions
 SET name = $2,
-    type = $3,
-    description = $4,
-    estimated_minutes = $5,
+    description = $3,
+    estimated_minutes = $4,
+    price = $5,
     is_active = $6,
     updated_at = NOW()
 WHERE id = $1
@@ -262,13 +238,13 @@ SELECT * FROM technician_skills WHERE technician_id = $1;
 
 -- name: CreateTechnicianSkill :exec
 INSERT INTO technician_skills (
-  technician_id, skill
+  technician_id, service_definition_id
 ) VALUES (
   $1, $2
 );
 
 -- name: DeleteTechnicianSkill :exec
-DELETE FROM technician_skills WHERE technician_id = $1 AND skill = $2;
+DELETE FROM technician_skills WHERE technician_id = $1 AND service_definition_id = $2;
 
 
 -- =========================================================================
@@ -291,26 +267,72 @@ SET status = $2,
 WHERE id = $1
 RETURNING *;
 
+-- Service_ids input to fetch technicians with all required skills and to check bay/tech availability
+-- Services input to store snapshot of service details at time of booking (name, price, duration) to prevent issues if service definitions change later 
+
+-- name: CreateAppointment :one
+WITH slot_range AS (
+  SELECT tstzrange(
+    sqlc.arg(start_time)::TIMESTAMPTZ,
+    sqlc.arg(start_time)::TIMESTAMPTZ + sqlc.arg(duration)::INTERVAL
+  ) AS range
+),
+qualified_technicians AS (
+  SELECT t.id
+  FROM technicians t
+  INNER JOIN technician_skills ts ON ts.technician_id = t.id
+  WHERE t.dealership_id = sqlc.arg(dealership_id)
+    AND ts.skill = ANY(sqlc.arg(service_ids)::text  [])
+  GROUP BY t.id
+  HAVING COUNT(DISTINCT ts.skill) = cardinality(sqlc.arg(service_ids)::text[])
+),
+available_bay AS (
+  SELECT b.id
+  FROM service_bays b, slot_range sr
+  WHERE b.dealership_id = sqlc.arg(dealership_id)
+    AND NOT EXISTS (
+      SELECT 1 FROM appointments a
+      WHERE a.bay_id = b.id
+        AND a.dealership_id = sqlc.arg(dealership_id)
+        AND a.status <> 'CANCELLED'
+        AND tstzrange(a.start_time, a.end_time) && sr.range
+    )
+  LIMIT 1
+),
+available_technician AS (
+  SELECT qt.id
+  FROM qualified_technicians qt, slot_range sr
+  WHERE NOT EXISTS (
+      SELECT 1 FROM appointments a
+      WHERE a.technician_id = qt.id
+        AND a.dealership_id = sqlc.arg(dealership_id)
+        AND a.status <> 'CANCELLED'
+        AND tstzrange(a.start_time, a.end_time) && sr.range
+    )
+  LIMIT 1
+)
+INSERT INTO appointments (
+  dealership_id, customer_id, vehicle_id,
+  bay_id, technician_id,
+  start_time, end_time,
+  status, notes, services
+)
+SELECT
+  sqlc.arg(dealership_id),
+  sqlc.arg(customer_id),
+  sqlc.arg(vehicle_id),
+  availbay.id,
+  availtech.id,
+  sqlc.arg(start_time)::TIMESTAMPTZ,
+  sqlc.arg(start_time)::TIMESTAMPTZ + sqlc.arg(duration)::INTERVAL,
+  sqlc.arg(status)::appointment_status,
+  sqlc.arg(notes),
+  sqlc.arg(services)::JSONB
+
+FROM available_bay availbay, available_technician availtech
+RETURNING *;
+
 -- name: DeleteAppointment :exec
 DELETE FROM appointments WHERE id = $1;
 
 
--- =========================================================================
--- RESERVATIONS (Remaining CRUD)
--- =========================================================================
-
--- name: GetReservation :one
-SELECT * FROM reservations WHERE id = $1;
-
--- name: ListReservationsByDealership :many
-SELECT r.* 
-FROM reservations r
-JOIN service_bays b ON r.bay_id = b.id
-WHERE b.dealership_id = $1
-ORDER BY r.start_time DESC;
-
--- name: UpdateReservationStatus :one
-UPDATE reservations
-SET status = $2
-WHERE id = $1
-RETURNING *;

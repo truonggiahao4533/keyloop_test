@@ -14,21 +14,24 @@ const (
 	ServiceMOT             ServiceType = "mot_inspection"
 )
 
-// ServiceDefinition describes a catalogue entry for a service that a
+// Service describes a catalogue entry for a service that a
 // dealership can offer. It includes the estimated duration used to
 // calculate appointment end times.
-type ServiceDefinition struct {
-	ID               string
-	Name             string
-	Type             ServiceType
-	Description      string
-	EstimatedMinutes int
-	IsActive         bool
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+type Service struct {
+	ID                string
+	Name              string
+	Type              ServiceType
+	Description       string
+	EstimatedMinutes  int
+	Price             float64
+	IsActive          bool
+	DealershipService bool
+	DeletedAt         time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // EstimatedDuration returns the estimated duration as a time.Duration.
-func (sd *ServiceDefinition) EstimatedDuration() time.Duration {
+func (sd *Service) EstimatedDuration() time.Duration {
 	return time.Duration(sd.EstimatedMinutes) * time.Minute
 }

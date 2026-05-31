@@ -1,0 +1,268 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "RESTful API for booking vehicle service appointments at dealerships.",
+        "title": "Keyloop Appointment Booking API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/",
+    "paths": {
+        "/api/v1/appointments": {
+            "post": {
+                "description": "Create a new service appointment at a dealership for the chosen time slot",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "appointments"
+                ],
+                "summary": "Book an appointment",
+                "parameters": [
+                    {
+                        "description": "Appointment details",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/main.bookAppointmentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/main.bookAppointmentResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/main.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/main.errorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/main.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/main.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/appointments/available-slots": {
+            "get": {
+                "description": "Returns available 30-minute time slots within 7 days of desired_time where a bay and qualified technician are both free",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "appointments"
+                ],
+                "summary": "List available slots",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Dealership UUID",
+                        "name": "dealership_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Vehicle UUID",
+                        "name": "vehicle_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Customer UUID",
+                        "name": "customer_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "Service type identifiers (repeatable)",
+                        "name": "services",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Total service duration in minutes",
+                        "name": "total_duration_minutes",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Desired start datetime (RFC3339)",
+                        "name": "desired_time",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/main.availableSlotsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/main.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/main.errorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/main.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/main.errorResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "main.availableSlotsResponse": {
+            "type": "object",
+            "properties": {
+                "available_slots": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.slotJSON"
+                    }
+                }
+            }
+        },
+        "main.bookAppointmentRequest": {
+            "type": "object",
+            "required": [
+                "chosen_slot",
+                "dealership_id",
+                "service_bay_id",
+                "services",
+                "technician_id",
+                "vehicle_id"
+            ],
+            "properties": {
+                "chosen_slot": {
+                    "$ref": "#/definitions/main.chosenSlotJSON"
+                },
+                "dealership_id": {
+                    "type": "string",
+                    "example": "d1e2f3a4-b5c6-7890-abcd-ef1234567890"
+                },
+                "service_bay_id": {
+                    "type": "string",
+                    "example": "b1c2d3e4-f5a6-7890-abcd-ef1234567890"
+                },
+                "services": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "oil_change",
+                        "tire_rotation"
+                    ]
+                },
+                "technician_id": {
+                    "type": "string",
+                    "example": "c1d2e3f4-a5b6-7890-abcd-ef1234567890"
+                },
+                "vehicle_id": {
+                    "type": "string",
+                    "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                }
+            }
+        },
+        "main.bookAppointmentResponse": {
+            "type": "object",
+            "properties": {
+                "appointment_id": {
+                    "type": "string",
+                    "example": "f1a2b3c4-d5e6-7890-abcd-ef1234567890"
+                },
+                "message": {
+                    "type": "string",
+                    "example": "appointment booked"
+                }
+            }
+        },
+        "main.chosenSlotJSON": {
+            "type": "object",
+            "required": [
+                "end",
+                "start"
+            ],
+            "properties": {
+                "end": {
+                    "type": "string",
+                    "example": "2025-01-15T10:00:00Z"
+                },
+                "start": {
+                    "type": "string",
+                    "example": "2025-01-15T09:00:00Z"
+                }
+            }
+        },
+        "main.errorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "dealership not found"
+                }
+            }
+        },
+        "main.slotJSON": {
+            "type": "object",
+            "properties": {
+                "end": {
+                    "type": "string",
+                    "example": "2025-01-15T10:00:00Z"
+                },
+                "start": {
+                    "type": "string",
+                    "example": "2025-01-15T09:00:00Z"
+                }
+            }
+        }
+    }
+}

@@ -18,14 +18,14 @@ CREATE TYPE appointment_status AS ENUM (
     'no_show'
 );
 
-CREATE TYPE service_type AS ENUM (
-    'oil_change',
-    'tire_rotation',
-    'brake_inspection',
-    'engine_diagnostics',
-    'full_service',
-    'mot_inspection'
-);
+-- CREATE TYPE service_type AS ENUM (
+--     'oil_change',
+--     'tire_rotation',
+--     'brake_inspection',
+--     'engine_diagnostics',
+--     'full_service',
+--     'mot_inspection'
+-- );
 
 CREATE TABLE customers (
     id UUID PRIMARY KEY,
@@ -33,6 +33,7 @@ CREATE TABLE customers (
     last_name VARCHAR(100) NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
     phone VARCHAR(20) NOT NULL,
+    deleted_at TIMESTAMP WITH TIME ZONE NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
@@ -45,6 +46,7 @@ CREATE TABLE vehicles (
     year INT NOT NULL,
     vin VARCHAR(50) NOT NULL UNIQUE,
     license_plate VARCHAR(20) NOT NULL,
+    deleted_at TIMESTAMP WITH TIME ZONE NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
@@ -56,6 +58,9 @@ CREATE TABLE dealerships (
     city VARCHAR(100) NOT NULL,
     phone VARCHAR(20) NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    open_time TIME NOT NULL DEFAULT '09:00:00',
+    close_time TIME NOT NULL DEFAULT '17:00:00',
+    deleted_at TIMESTAMP WITH TIME ZONE NULL ,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
@@ -66,6 +71,7 @@ CREATE TABLE service_bays (
     name VARCHAR(100) NOT NULL,
     bay_number INT NOT NULL,
     status bay_status NOT NULL DEFAULT 'active',
+    deleted_at TIMESTAMP WITH TIME ZONE NULL ,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     UNIQUE(dealership_id, bay_number)
@@ -74,10 +80,11 @@ CREATE TABLE service_bays (
 CREATE TABLE service_definitions (
     id UUID PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    type service_type NOT NULL UNIQUE,
     description TEXT NOT NULL,
     estimated_minutes INT NOT NULL,
+    price DECIMAL(10, 2) NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    deleted_at TIMESTAMP WITH TIME ZONE NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
@@ -88,15 +95,17 @@ CREATE TABLE technicians (
     first_name VARCHAR(100) NOT NULL,
     last_name VARCHAR(100) NOT NULL,
     status technician_status NOT NULL DEFAULT 'active',
+    deleted_at TIMESTAMP WITH TIME ZONE NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE technician_skills (
     technician_id UUID NOT NULL REFERENCES technicians(id) ON DELETE CASCADE,
-    skill service_type NOT NULL,
-    PRIMARY KEY (technician_id, skill)
+    service_definition_id UUID NOT NULL REFERENCES service_definitions(id) ON DELETE CASCADE,
+    PRIMARY KEY (technician_id, service_definition_id)
 );
+
 
 CREATE TABLE appointments (
     id UUID PRIMARY KEY,
@@ -105,40 +114,35 @@ CREATE TABLE appointments (
     dealership_id UUID NOT NULL REFERENCES dealerships(id) ON DELETE CASCADE,
     service_bay_id UUID NOT NULL REFERENCES service_bays(id) ON DELETE CASCADE,
     technician_id UUID NOT NULL REFERENCES technicians(id) ON DELETE CASCADE,
-    service_type service_type NOT NULL,
+    services JSONB NOT NULL,
     status appointment_status NOT NULL DEFAULT 'pending',
     start_time TIMESTAMP WITH TIME ZONE NOT NULL,
     end_time TIMESTAMP WITH TIME ZONE NOT NULL,
     notes TEXT,
+    deleted_at TIMESTAMP WITH TIME ZONE NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+
+    -- Prevent overlapping bookings for the same bay (pending and confirmed only)
+    CONSTRAINT no_overlap_bay EXCLUDE USING gist (
+        service_bay_id WITH =,
+        tstzrange(start_time, end_time) WITH &&
+    ) WHERE (deleted_at IS NULL AND status IN ('pending', 'confirmed')),
+
+    -- Prevent overlapping bookings for the same technician
+    CONSTRAINT no_overlap_tech EXCLUDE USING gist (
+        technician_id WITH =,
+        tstzrange(start_time, end_time) WITH &&
+    ) WHERE (deleted_at IS NULL AND status IN ('pending', 'confirmed'))
 );
+
+CREATE EXTENSION IF NOT EXISTS btree_gist;
 
 CREATE INDEX idx_appointments_start_time ON appointments(start_time);
 CREATE INDEX idx_appointments_end_time ON appointments(end_time);
 CREATE INDEX idx_appointments_dealership_id ON appointments(dealership_id);
 
-CREATE EXTENSION IF NOT EXISTS btree_gist;
 
-CREATE TABLE reservations (
-  id            UUID PRIMARY KEY,
-  bay_id        UUID NOT NULL REFERENCES service_bays(id) ON DELETE CASCADE,
-  technician_id UUID NOT NULL REFERENCES technicians(id) ON DELETE CASCADE,
-  start_time    TIMESTAMP WITH TIME ZONE NOT NULL,
-  end_time      TIMESTAMP WITH TIME ZONE NOT NULL,
-  user_id       UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
-  expires_at    TIMESTAMP WITH TIME ZONE NOT NULL,
-  status        VARCHAR(20) DEFAULT 'PENDING',
 
-  -- Prevent overlapping reservations for the same bay
-  CONSTRAINT no_overlap_bay EXCLUDE USING gist (
-    bay_id WITH =,
-    tstzrange(start_time, end_time) WITH &&
-  ),
 
-  -- Prevent overlapping reservations for the same technician
-  CONSTRAINT no_overlap_tech EXCLUDE USING gist (
-    technician_id WITH =,
-    tstzrange(start_time, end_time) WITH &&
-  )
-);
+

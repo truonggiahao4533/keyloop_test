@@ -7,6 +7,7 @@ package sqlc
 import (
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -101,52 +102,6 @@ func (ns NullBayStatus) Value() (driver.Value, error) {
 	return string(ns.BayStatus), nil
 }
 
-type ServiceType string
-
-const (
-	ServiceTypeOilChange         ServiceType = "oil_change"
-	ServiceTypeTireRotation      ServiceType = "tire_rotation"
-	ServiceTypeBrakeInspection   ServiceType = "brake_inspection"
-	ServiceTypeEngineDiagnostics ServiceType = "engine_diagnostics"
-	ServiceTypeFullService       ServiceType = "full_service"
-	ServiceTypeMotInspection     ServiceType = "mot_inspection"
-)
-
-func (e *ServiceType) Scan(src interface{}) error {
-	switch s := src.(type) {
-	case []byte:
-		*e = ServiceType(s)
-	case string:
-		*e = ServiceType(s)
-	default:
-		return fmt.Errorf("unsupported scan type for ServiceType: %T", src)
-	}
-	return nil
-}
-
-type NullServiceType struct {
-	ServiceType ServiceType `json:"service_type"`
-	Valid       bool        `json:"valid"` // Valid is true if ServiceType is not NULL
-}
-
-// Scan implements the Scanner interface.
-func (ns *NullServiceType) Scan(value interface{}) error {
-	if value == nil {
-		ns.ServiceType, ns.Valid = "", false
-		return nil
-	}
-	ns.Valid = true
-	return ns.ServiceType.Scan(value)
-}
-
-// Value implements the driver Valuer interface.
-func (ns NullServiceType) Value() (driver.Value, error) {
-	if !ns.Valid {
-		return nil, nil
-	}
-	return string(ns.ServiceType), nil
-}
-
 type TechnicianStatus string
 
 const (
@@ -197,66 +152,62 @@ type Appointment struct {
 	DealershipID uuid.UUID         `json:"dealership_id"`
 	ServiceBayID uuid.UUID         `json:"service_bay_id"`
 	TechnicianID uuid.UUID         `json:"technician_id"`
-	ServiceType  ServiceType       `json:"service_type"`
+	Services     json.RawMessage   `json:"services"`
 	Status       AppointmentStatus `json:"status"`
 	StartTime    time.Time         `json:"start_time"`
 	EndTime      time.Time         `json:"end_time"`
 	Notes        sql.NullString    `json:"notes"`
+	DeletedAt    sql.NullTime      `json:"deleted_at"`
 	CreatedAt    time.Time         `json:"created_at"`
 	UpdatedAt    time.Time         `json:"updated_at"`
 }
 
 type Customer struct {
-	ID        uuid.UUID `json:"id"`
-	FirstName string    `json:"first_name"`
-	LastName  string    `json:"last_name"`
-	Email     string    `json:"email"`
-	Phone     string    `json:"phone"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID        uuid.UUID    `json:"id"`
+	FirstName string       `json:"first_name"`
+	LastName  string       `json:"last_name"`
+	Email     string       `json:"email"`
+	Phone     string       `json:"phone"`
+	DeletedAt sql.NullTime `json:"deleted_at"`
+	CreatedAt time.Time    `json:"created_at"`
+	UpdatedAt time.Time    `json:"updated_at"`
 }
 
 type Dealership struct {
-	ID        uuid.UUID `json:"id"`
-	Name      string    `json:"name"`
-	Address   string    `json:"address"`
-	City      string    `json:"city"`
-	Phone     string    `json:"phone"`
-	IsActive  bool      `json:"is_active"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-type Reservation struct {
-	ID           uuid.UUID      `json:"id"`
-	BayID        uuid.UUID      `json:"bay_id"`
-	TechnicianID uuid.UUID      `json:"technician_id"`
-	StartTime    time.Time      `json:"start_time"`
-	EndTime      time.Time      `json:"end_time"`
-	UserID       uuid.UUID      `json:"user_id"`
-	ExpiresAt    time.Time      `json:"expires_at"`
-	Status       sql.NullString `json:"status"`
+	ID        uuid.UUID    `json:"id"`
+	Name      string       `json:"name"`
+	Address   string       `json:"address"`
+	City      string       `json:"city"`
+	Phone     string       `json:"phone"`
+	IsActive  bool         `json:"is_active"`
+	OpenTime  time.Time    `json:"open_time"`
+	CloseTime time.Time    `json:"close_time"`
+	DeletedAt sql.NullTime `json:"deleted_at"`
+	CreatedAt time.Time    `json:"created_at"`
+	UpdatedAt time.Time    `json:"updated_at"`
 }
 
 type ServiceBay struct {
-	ID           uuid.UUID `json:"id"`
-	DealershipID uuid.UUID `json:"dealership_id"`
-	Name         string    `json:"name"`
-	BayNumber    int32     `json:"bay_number"`
-	Status       BayStatus `json:"status"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID           uuid.UUID    `json:"id"`
+	DealershipID uuid.UUID    `json:"dealership_id"`
+	Name         string       `json:"name"`
+	BayNumber    int32        `json:"bay_number"`
+	Status       BayStatus    `json:"status"`
+	DeletedAt    sql.NullTime `json:"deleted_at"`
+	CreatedAt    time.Time    `json:"created_at"`
+	UpdatedAt    time.Time    `json:"updated_at"`
 }
 
 type ServiceDefinition struct {
-	ID               uuid.UUID   `json:"id"`
-	Name             string      `json:"name"`
-	Type             ServiceType `json:"type"`
-	Description      string      `json:"description"`
-	EstimatedMinutes int32       `json:"estimated_minutes"`
-	IsActive         bool        `json:"is_active"`
-	CreatedAt        time.Time   `json:"created_at"`
-	UpdatedAt        time.Time   `json:"updated_at"`
+	ID               uuid.UUID    `json:"id"`
+	Name             string       `json:"name"`
+	Description      string       `json:"description"`
+	EstimatedMinutes int32        `json:"estimated_minutes"`
+	Price            string       `json:"price"`
+	IsActive         bool         `json:"is_active"`
+	DeletedAt        sql.NullTime `json:"deleted_at"`
+	CreatedAt        time.Time    `json:"created_at"`
+	UpdatedAt        time.Time    `json:"updated_at"`
 }
 
 type Technician struct {
@@ -265,23 +216,25 @@ type Technician struct {
 	FirstName    string           `json:"first_name"`
 	LastName     string           `json:"last_name"`
 	Status       TechnicianStatus `json:"status"`
+	DeletedAt    sql.NullTime     `json:"deleted_at"`
 	CreatedAt    time.Time        `json:"created_at"`
 	UpdatedAt    time.Time        `json:"updated_at"`
 }
 
 type TechnicianSkill struct {
-	TechnicianID uuid.UUID   `json:"technician_id"`
-	Skill        ServiceType `json:"skill"`
+	TechnicianID        uuid.UUID `json:"technician_id"`
+	ServiceDefinitionID uuid.UUID `json:"service_definition_id"`
 }
 
 type Vehicle struct {
-	ID           uuid.UUID `json:"id"`
-	CustomerID   uuid.UUID `json:"customer_id"`
-	Make         string    `json:"make"`
-	Model        string    `json:"model"`
-	Year         int32     `json:"year"`
-	Vin          string    `json:"vin"`
-	LicensePlate string    `json:"license_plate"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID           uuid.UUID    `json:"id"`
+	CustomerID   uuid.UUID    `json:"customer_id"`
+	Make         string       `json:"make"`
+	Model        string       `json:"model"`
+	Year         int32        `json:"year"`
+	Vin          string       `json:"vin"`
+	LicensePlate string       `json:"license_plate"`
+	DeletedAt    sql.NullTime `json:"deleted_at"`
+	CreatedAt    time.Time    `json:"created_at"`
+	UpdatedAt    time.Time    `json:"updated_at"`
 }

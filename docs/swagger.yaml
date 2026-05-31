@@ -1,0 +1,185 @@
+basePath: /
+definitions:
+  main.availableSlotsResponse:
+    properties:
+      available_slots:
+        items:
+          $ref: '#/definitions/main.slotJSON'
+        type: array
+    type: object
+  main.bookAppointmentRequest:
+    properties:
+      chosen_slot:
+        $ref: '#/definitions/main.chosenSlotJSON'
+      dealership_id:
+        example: d1e2f3a4-b5c6-7890-abcd-ef1234567890
+        type: string
+      service_bay_id:
+        example: b1c2d3e4-f5a6-7890-abcd-ef1234567890
+        type: string
+      services:
+        example:
+        - oil_change
+        - tire_rotation
+        items:
+          type: string
+        minItems: 1
+        type: array
+      technician_id:
+        example: c1d2e3f4-a5b6-7890-abcd-ef1234567890
+        type: string
+      vehicle_id:
+        example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+        type: string
+    required:
+    - chosen_slot
+    - dealership_id
+    - service_bay_id
+    - services
+    - technician_id
+    - vehicle_id
+    type: object
+  main.bookAppointmentResponse:
+    properties:
+      appointment_id:
+        example: f1a2b3c4-d5e6-7890-abcd-ef1234567890
+        type: string
+      message:
+        example: appointment booked
+        type: string
+    type: object
+  main.chosenSlotJSON:
+    properties:
+      end:
+        example: "2025-01-15T10:00:00Z"
+        type: string
+      start:
+        example: "2025-01-15T09:00:00Z"
+        type: string
+    required:
+    - end
+    - start
+    type: object
+  main.errorResponse:
+    properties:
+      error:
+        example: dealership not found
+        type: string
+    type: object
+  main.slotJSON:
+    properties:
+      end:
+        example: "2025-01-15T10:00:00Z"
+        type: string
+      start:
+        example: "2025-01-15T09:00:00Z"
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: RESTful API for booking vehicle service appointments at dealerships.
+  title: Keyloop Appointment Booking API
+  version: "1.0"
+paths:
+  /api/v1/appointments:
+    post:
+      consumes:
+      - application/json
+      description: Create a new service appointment at a dealership for the chosen
+        time slot
+      parameters:
+      - description: Appointment details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/main.bookAppointmentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/main.bookAppointmentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/main.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/main.errorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/main.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.errorResponse'
+      summary: Book an appointment
+      tags:
+      - appointments
+  /api/v1/appointments/available-slots:
+    get:
+      description: Returns available 30-minute time slots within 7 days of desired_time
+        where a bay and qualified technician are both free
+      parameters:
+      - description: Dealership UUID
+        in: query
+        name: dealership_id
+        required: true
+        type: string
+      - description: Vehicle UUID
+        in: query
+        name: vehicle_id
+        type: string
+      - description: Customer UUID
+        in: query
+        name: customer_id
+        type: string
+      - collectionFormat: multi
+        description: Service type identifiers (repeatable)
+        in: query
+        items:
+          type: string
+        name: services
+        type: array
+      - description: Total service duration in minutes
+        in: query
+        name: total_duration_minutes
+        required: true
+        type: integer
+      - description: Desired start datetime (RFC3339)
+        in: query
+        name: desired_time
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.availableSlotsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/main.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/main.errorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/main.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.errorResponse'
+      summary: List available slots
+      tags:
+      - appointments
+swagger: "2.0"

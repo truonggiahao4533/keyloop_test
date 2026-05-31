@@ -19,6 +19,7 @@ type ServiceBay struct {
 	Name         string
 	BayNumber    int
 	Status       BayStatus
+	DeletedAt    time.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }

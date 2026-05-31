@@ -11,6 +11,7 @@ type Vehicle struct {
 	Year         int
 	VIN          string
 	LicensePlate string
+	DeletedAt    time.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }

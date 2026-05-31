@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-func TestServiceDefinition_EstimatedDuration(t *testing.T) {
-	sd := &domain.ServiceDefinition{
+func TestService_EstimatedDuration(t *testing.T) {
+	sd := &domain.Service{
 		EstimatedMinutes: 45,
 	}
 

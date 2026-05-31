@@ -12,10 +12,11 @@ import (
 )
 
 type Querier interface {
+	// Service_ids input to fetch technicians with all required skills and to check bay/tech availability
+	// Services input to store snapshot of service details at time of booking (name, price, duration) to prevent issues if service definitions change later
 	CreateAppointment(ctx context.Context, arg CreateAppointmentParams) (Appointment, error)
 	CreateCustomer(ctx context.Context, arg CreateCustomerParams) (Customer, error)
 	CreateDealership(ctx context.Context, arg CreateDealershipParams) (Dealership, error)
-	CreateReservation(ctx context.Context, arg CreateReservationParams) (Reservation, error)
 	CreateServiceBay(ctx context.Context, arg CreateServiceBayParams) (ServiceBay, error)
 	CreateServiceDefinition(ctx context.Context, arg CreateServiceDefinitionParams) (ServiceDefinition, error)
 	CreateTechnician(ctx context.Context, arg CreateTechnicianParams) (Technician, error)
@@ -24,8 +25,6 @@ type Querier interface {
 	DeleteAppointment(ctx context.Context, id uuid.UUID) error
 	DeleteCustomer(ctx context.Context, id uuid.UUID) error
 	DeleteDealership(ctx context.Context, id uuid.UUID) error
-	DeleteExpiredReservations(ctx context.Context) error
-	DeleteReservation(ctx context.Context, id uuid.UUID) error
 	DeleteServiceBay(ctx context.Context, id uuid.UUID) error
 	DeleteServiceDefinition(ctx context.Context, id uuid.UUID) error
 	DeleteTechnician(ctx context.Context, id uuid.UUID) error
@@ -36,6 +35,7 @@ type Querier interface {
 	// =========================================================================
 	GetAppointment(ctx context.Context, id uuid.UUID) (Appointment, error)
 	GetAvailableSlots(ctx context.Context, arg GetAvailableSlotsParams) ([]time.Time, error)
+	//
 	// =========================================================================
 	// CUSTOMERS
 	// =========================================================================
@@ -44,10 +44,6 @@ type Querier interface {
 	// DEALERSHIPS
 	// =========================================================================
 	GetDealership(ctx context.Context, id uuid.UUID) (Dealership, error)
-	// =========================================================================
-	// RESERVATIONS (Remaining CRUD)
-	// =========================================================================
-	GetReservation(ctx context.Context, id uuid.UUID) (Reservation, error)
 	// =========================================================================
 	// SERVICE BAYS
 	// =========================================================================
@@ -68,7 +64,6 @@ type Querier interface {
 	ListAppointmentsByDealership(ctx context.Context, dealershipID uuid.UUID) ([]Appointment, error)
 	ListCustomers(ctx context.Context) ([]Customer, error)
 	ListDealerships(ctx context.Context) ([]Dealership, error)
-	ListReservationsByDealership(ctx context.Context, dealershipID uuid.UUID) ([]Reservation, error)
 	ListServiceBaysByDealership(ctx context.Context, dealershipID uuid.UUID) ([]ServiceBay, error)
 	ListServiceDefinitions(ctx context.Context) ([]ServiceDefinition, error)
 	// =========================================================================
@@ -80,7 +75,6 @@ type Querier interface {
 	UpdateAppointmentStatus(ctx context.Context, arg UpdateAppointmentStatusParams) (Appointment, error)
 	UpdateCustomer(ctx context.Context, arg UpdateCustomerParams) (Customer, error)
 	UpdateDealership(ctx context.Context, arg UpdateDealershipParams) (Dealership, error)
-	UpdateReservationStatus(ctx context.Context, arg UpdateReservationStatusParams) (Reservation, error)
 	UpdateServiceBay(ctx context.Context, arg UpdateServiceBayParams) (ServiceBay, error)
 	UpdateServiceDefinition(ctx context.Context, arg UpdateServiceDefinitionParams) (ServiceDefinition, error)
 	UpdateTechnician(ctx context.Context, arg UpdateTechnicianParams) (Technician, error)

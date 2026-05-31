@@ -1,3 +1,9 @@
+// @title           Keyloop Appointment Booking API
+// @version         1.0
+// @description     RESTful API for booking vehicle service appointments at dealerships.
+// @host            localhost:8080
+// @BasePath        /
+
 package main
 
 import (
@@ -5,9 +11,12 @@ import (
 	"fmt"
 	"os"
 
-	repository "keyloop-test/infrastructure/postgresql/postgre-repository"
+	_ "keyloop-test/docs"
+	postgrerepository "keyloop-test/infrastructure/postgresql/postgre-repository"
+	rediscache "keyloop-test/infrastructure/redis"
 	"keyloop-test/internal/usecase"
 
+	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
 )
 
@@ -24,25 +33,42 @@ func main() {
 	}
 	defer db.Close()
 
-	// Initialize Repository
-	dealershipRepo := repository.NewDealershipRepository(db)
-	serviceBayRepo := repository.NewServiceBayRepository(db)
-	technicianRepo := repository.NewTechnicianRepository(db)
-	reservationRepo := repository.NewReservationRepository(db)
+	// Initialize Redis
+	redisClient := rediscache.NewRedisClient()
+	defer redisClient.Close()
+	serviceCache := rediscache.NewServiceCache(redisClient)
 
-	// Initialize Use Case
-	_ = usecase.NewAppointmentBookingUseCase(
+	// Initialize Repositories
+	dealershipRepo := postgrerepository.NewDealershipRepository(db)
+	serviceBayRepo := postgrerepository.NewServiceBayRepository(db)
+	technicianRepo := postgrerepository.NewTechnicianRepository(db)
+	serviceDefRepo := postgrerepository.NewServiceDefinitionRepository(db)
+	vehicleRepo := postgrerepository.NewVehicleRepository(db)
+	availabilitySlotRepo := postgrerepository.NewAvailabilitySlotRepository(db)
+	appointmentRepo := postgrerepository.NewAppointmentRepository(db)
+
+	// Initialize Use Cases
+	appointmentUC := usecase.NewAppointmentBookingUseCase(
 		dealershipRepo,
 		serviceBayRepo,
 		technicianRepo,
-		reservationRepo,
+		serviceDefRepo,
+		vehicleRepo,
+		serviceCache,
+		availabilitySlotRepo,
+		appointmentRepo,
 	)
 
-	// TODO: Start HTTP Server
-	// router := gin.Default()
-	// api := NewAPI(router, appoinmentBookingUseCase)
-	// api.SetupRoutes()
-	// router.Run(":8080")
+	//Run gin server
+	router := gin.Default()
+	NewAppointmentHandler(appointmentUC).RegisterRoutes(router)
 
-	fmt.Println("Server started successfully")
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	fmt.Printf("Server listening on :%s\n", port)
+	if err := router.Run(":" + port); err != nil {
+		panic("failed to start server: " + err.Error())
+	}
 }

@@ -21,6 +21,7 @@ type Technician struct {
 	LastName     string
 	Skills       []ServiceType
 	Status       TechnicianStatus
+	DeletedAt    time.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
