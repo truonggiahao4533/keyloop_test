@@ -14,6 +14,7 @@ import (
 	_ "keyloop-test/docs"
 	postgrerepository "keyloop-test/infrastructure/postgresql/postgre-repository"
 	rediscache "keyloop-test/infrastructure/redis"
+	httpHandler "keyloop-test/internal/adapter/http"
 	"keyloop-test/internal/usecase"
 
 	"github.com/gin-gonic/gin"
@@ -61,7 +62,7 @@ func main() {
 
 	//Run gin server
 	router := gin.Default()
-	NewAppointmentHandler(appointmentUC).RegisterRoutes(router)
+	httpHandler.NewAppointmentHandler(appointmentUC).RegisterRoutes(router)
 
 	port := os.Getenv("PORT")
 	if port == "" {

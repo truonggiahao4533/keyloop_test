@@ -1,0 +1,74 @@
+services:
+#Application
+  app:
+    image: keyloop-test
+    container_name: keyloop-test-app
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+    environment:
+      POSTGRE_CONNECTION_STRING: ${POSTGRE_CONNECTION_STRING}
+      PORT: ${PORT}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_SCHEMA: ${POSTGRES_SCHEMA}
+    networks:
+      - keyloop-test-network
+    depends_on:
+       postgresql:
+        condition: service_healthy
+       redis:
+        condition: service_healthy
+
+#Postgres 
+  postgresql:
+    image: postgres:version-15.3
+    container_name: keyloop-test-postgresql
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgresql-data:/var/lib/postgresql
+    networks:
+      - keyloop-test-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+
+  redis:
+    image: redis:version-7.2.0
+    container_name: keyloop-test-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - keyloop-test-network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+
+      retries: 5
+      start_period: 5s
+  
+
+volumes:
+  mongo-data:
+    external: true
+    name: mongo-data
+  postgresql-data:
+    name: postgresql-data
+networks:
+  keyloop-test-network:
+    driver: bridge
+    name: keyloop-test-network
