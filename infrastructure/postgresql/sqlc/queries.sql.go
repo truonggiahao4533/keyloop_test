@@ -210,6 +210,47 @@ func (q *Queries) CreateDealership(ctx context.Context, arg CreateDealershipPara
 	return i, err
 }
 
+const createService = `-- name: CreateService :one
+INSERT INTO services (
+  id, name, description, estimated_minutes, price, is_active
+) VALUES (
+  $1, $2, $3, $4, $5, $6
+) RETURNING id, name, description, estimated_minutes, price, is_active, deleted_at, created_at, updated_at
+`
+
+type CreateServiceParams struct {
+	ID               uuid.UUID `json:"id"`
+	Name             string    `json:"name"`
+	Description      string    `json:"description"`
+	EstimatedMinutes int32     `json:"estimated_minutes"`
+	Price            string    `json:"price"`
+	IsActive         bool      `json:"is_active"`
+}
+
+func (q *Queries) CreateService(ctx context.Context, arg CreateServiceParams) (Service, error) {
+	row := q.db.QueryRowContext(ctx, createService,
+		arg.ID,
+		arg.Name,
+		arg.Description,
+		arg.EstimatedMinutes,
+		arg.Price,
+		arg.IsActive,
+	)
+	var i Service
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.EstimatedMinutes,
+		&i.Price,
+		&i.IsActive,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const createServiceBay = `-- name: CreateServiceBay :one
 INSERT INTO service_bays (
   id, dealership_id, name, bay_number, status
@@ -241,47 +282,6 @@ func (q *Queries) CreateServiceBay(ctx context.Context, arg CreateServiceBayPara
 		&i.Name,
 		&i.BayNumber,
 		&i.Status,
-		&i.DeletedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const createServiceDefinition = `-- name: CreateServiceDefinition :one
-INSERT INTO service_definitions (
-  id, name, description, estimated_minutes, price, is_active
-) VALUES (
-  $1, $2, $3, $4, $5, $6
-) RETURNING id, name, description, estimated_minutes, price, is_active, deleted_at, created_at, updated_at
-`
-
-type CreateServiceDefinitionParams struct {
-	ID               uuid.UUID `json:"id"`
-	Name             string    `json:"name"`
-	Description      string    `json:"description"`
-	EstimatedMinutes int32     `json:"estimated_minutes"`
-	Price            string    `json:"price"`
-	IsActive         bool      `json:"is_active"`
-}
-
-func (q *Queries) CreateServiceDefinition(ctx context.Context, arg CreateServiceDefinitionParams) (ServiceDefinition, error) {
-	row := q.db.QueryRowContext(ctx, createServiceDefinition,
-		arg.ID,
-		arg.Name,
-		arg.Description,
-		arg.EstimatedMinutes,
-		arg.Price,
-		arg.IsActive,
-	)
-	var i ServiceDefinition
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Description,
-		&i.EstimatedMinutes,
-		&i.Price,
-		&i.IsActive,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -329,19 +329,19 @@ func (q *Queries) CreateTechnician(ctx context.Context, arg CreateTechnicianPara
 
 const createTechnicianSkill = `-- name: CreateTechnicianSkill :exec
 INSERT INTO technician_skills (
-  technician_id, service_definition_id
+  technician_id, service_id
 ) VALUES (
   $1, $2
 )
 `
 
 type CreateTechnicianSkillParams struct {
-	TechnicianID        uuid.UUID `json:"technician_id"`
-	ServiceDefinitionID uuid.UUID `json:"service_definition_id"`
+	TechnicianID uuid.UUID `json:"technician_id"`
+	ServiceID    uuid.UUID `json:"service_id"`
 }
 
 func (q *Queries) CreateTechnicianSkill(ctx context.Context, arg CreateTechnicianSkillParams) error {
-	_, err := q.db.ExecContext(ctx, createTechnicianSkill, arg.TechnicianID, arg.ServiceDefinitionID)
+	_, err := q.db.ExecContext(ctx, createTechnicianSkill, arg.TechnicianID, arg.ServiceID)
 	return err
 }
 
@@ -416,21 +416,21 @@ func (q *Queries) DeleteDealership(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const deleteService = `-- name: DeleteService :exec
+DELETE FROM services WHERE id = $1
+`
+
+func (q *Queries) DeleteService(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, deleteService, id)
+	return err
+}
+
 const deleteServiceBay = `-- name: DeleteServiceBay :exec
 DELETE FROM service_bays WHERE id = $1
 `
 
 func (q *Queries) DeleteServiceBay(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.ExecContext(ctx, deleteServiceBay, id)
-	return err
-}
-
-const deleteServiceDefinition = `-- name: DeleteServiceDefinition :exec
-DELETE FROM service_definitions WHERE id = $1
-`
-
-func (q *Queries) DeleteServiceDefinition(ctx context.Context, id uuid.UUID) error {
-	_, err := q.db.ExecContext(ctx, deleteServiceDefinition, id)
 	return err
 }
 
@@ -444,16 +444,16 @@ func (q *Queries) DeleteTechnician(ctx context.Context, id uuid.UUID) error {
 }
 
 const deleteTechnicianSkill = `-- name: DeleteTechnicianSkill :exec
-DELETE FROM technician_skills WHERE technician_id = $1 AND service_definition_id = $2
+  DELETE FROM technician_skills WHERE technician_id = $1 AND service_id = $2
 `
 
 type DeleteTechnicianSkillParams struct {
-	TechnicianID        uuid.UUID `json:"technician_id"`
-	ServiceDefinitionID uuid.UUID `json:"service_definition_id"`
+	TechnicianID uuid.UUID `json:"technician_id"`
+	ServiceID    uuid.UUID `json:"service_id"`
 }
 
 func (q *Queries) DeleteTechnicianSkill(ctx context.Context, arg DeleteTechnicianSkillParams) error {
-	_, err := q.db.ExecContext(ctx, deleteTechnicianSkill, arg.TechnicianID, arg.ServiceDefinitionID)
+	_, err := q.db.ExecContext(ctx, deleteTechnicianSkill, arg.TechnicianID, arg.ServiceID)
 	return err
 }
 
@@ -626,6 +626,31 @@ func (q *Queries) GetDealership(ctx context.Context, id uuid.UUID) (Dealership, 
 	return i, err
 }
 
+const getService = `-- name: GetService :one
+
+SELECT id, name, description, estimated_minutes, price, is_active, deleted_at, created_at, updated_at FROM services WHERE id = $1
+`
+
+// =========================================================================
+// SERVICE
+// =========================================================================
+func (q *Queries) GetService(ctx context.Context, id uuid.UUID) (Service, error) {
+	row := q.db.QueryRowContext(ctx, getService, id)
+	var i Service
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.EstimatedMinutes,
+		&i.Price,
+		&i.IsActive,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getServiceBay = `-- name: GetServiceBay :one
 
 SELECT id, dealership_id, name, bay_number, status, deleted_at, created_at, updated_at FROM service_bays WHERE id = $1
@@ -643,31 +668,6 @@ func (q *Queries) GetServiceBay(ctx context.Context, id uuid.UUID) (ServiceBay, 
 		&i.Name,
 		&i.BayNumber,
 		&i.Status,
-		&i.DeletedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getServiceDefinition = `-- name: GetServiceDefinition :one
-
-SELECT id, name, description, estimated_minutes, price, is_active, deleted_at, created_at, updated_at FROM service_definitions WHERE id = $1
-`
-
-// =========================================================================
-// SERVICE DEFINITIONS
-// =========================================================================
-func (q *Queries) GetServiceDefinition(ctx context.Context, id uuid.UUID) (ServiceDefinition, error) {
-	row := q.db.QueryRowContext(ctx, getServiceDefinition, id)
-	var i ServiceDefinition
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Description,
-		&i.EstimatedMinutes,
-		&i.Price,
-		&i.IsActive,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -920,19 +920,19 @@ func (q *Queries) ListServiceBaysByDealership(ctx context.Context, dealershipID 
 	return items, nil
 }
 
-const listServiceDefinitions = `-- name: ListServiceDefinitions :many
-SELECT id, name, description, estimated_minutes, price, is_active, deleted_at, created_at, updated_at FROM service_definitions ORDER BY name ASC
+const listServices = `-- name: ListServices :many
+SELECT id, name, description, estimated_minutes, price, is_active, deleted_at, created_at, updated_at FROM services ORDER BY name ASC
 `
 
-func (q *Queries) ListServiceDefinitions(ctx context.Context) ([]ServiceDefinition, error) {
-	rows, err := q.db.QueryContext(ctx, listServiceDefinitions)
+func (q *Queries) ListServices(ctx context.Context) ([]Service, error) {
+	rows, err := q.db.QueryContext(ctx, listServices)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ServiceDefinition
+	var items []Service
 	for rows.Next() {
-		var i ServiceDefinition
+		var i Service
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
@@ -959,7 +959,7 @@ func (q *Queries) ListServiceDefinitions(ctx context.Context) ([]ServiceDefiniti
 
 const listTechnicianSkills = `-- name: ListTechnicianSkills :many
 
-SELECT technician_id, service_definition_id FROM technician_skills WHERE technician_id = $1
+SELECT technician_id, service_id FROM technician_skills WHERE technician_id = $1
 `
 
 // =========================================================================
@@ -974,7 +974,7 @@ func (q *Queries) ListTechnicianSkills(ctx context.Context, technicianID uuid.UU
 	var items []TechnicianSkill
 	for rows.Next() {
 		var i TechnicianSkill
-		if err := rows.Scan(&i.TechnicianID, &i.ServiceDefinitionID); err != nil {
+		if err := rows.Scan(&i.TechnicianID, &i.ServiceID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1191,6 +1191,51 @@ func (q *Queries) UpdateDealership(ctx context.Context, arg UpdateDealershipPara
 	return i, err
 }
 
+const updateService = `-- name: UpdateService :one
+UPDATE services 
+SET name = $2,
+    description = $3,
+    estimated_minutes = $4,
+    price = $5,
+    is_active = $6,
+    updated_at = NOW()
+WHERE id = $1
+RETURNING id, name, description, estimated_minutes, price, is_active, deleted_at, created_at, updated_at
+`
+
+type UpdateServiceParams struct {
+	ID               uuid.UUID `json:"id"`
+	Name             string    `json:"name"`
+	Description      string    `json:"description"`
+	EstimatedMinutes int32     `json:"estimated_minutes"`
+	Price            string    `json:"price"`
+	IsActive         bool      `json:"is_active"`
+}
+
+func (q *Queries) UpdateService(ctx context.Context, arg UpdateServiceParams) (Service, error) {
+	row := q.db.QueryRowContext(ctx, updateService,
+		arg.ID,
+		arg.Name,
+		arg.Description,
+		arg.EstimatedMinutes,
+		arg.Price,
+		arg.IsActive,
+	)
+	var i Service
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.EstimatedMinutes,
+		&i.Price,
+		&i.IsActive,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateServiceBay = `-- name: UpdateServiceBay :one
 UPDATE service_bays
 SET name = $2,
@@ -1222,51 +1267,6 @@ func (q *Queries) UpdateServiceBay(ctx context.Context, arg UpdateServiceBayPara
 		&i.Name,
 		&i.BayNumber,
 		&i.Status,
-		&i.DeletedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const updateServiceDefinition = `-- name: UpdateServiceDefinition :one
-UPDATE service_definitions
-SET name = $2,
-    description = $3,
-    estimated_minutes = $4,
-    price = $5,
-    is_active = $6,
-    updated_at = NOW()
-WHERE id = $1
-RETURNING id, name, description, estimated_minutes, price, is_active, deleted_at, created_at, updated_at
-`
-
-type UpdateServiceDefinitionParams struct {
-	ID               uuid.UUID `json:"id"`
-	Name             string    `json:"name"`
-	Description      string    `json:"description"`
-	EstimatedMinutes int32     `json:"estimated_minutes"`
-	Price            string    `json:"price"`
-	IsActive         bool      `json:"is_active"`
-}
-
-func (q *Queries) UpdateServiceDefinition(ctx context.Context, arg UpdateServiceDefinitionParams) (ServiceDefinition, error) {
-	row := q.db.QueryRowContext(ctx, updateServiceDefinition,
-		arg.ID,
-		arg.Name,
-		arg.Description,
-		arg.EstimatedMinutes,
-		arg.Price,
-		arg.IsActive,
-	)
-	var i ServiceDefinition
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Description,
-		&i.EstimatedMinutes,
-		&i.Price,
-		&i.IsActive,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,

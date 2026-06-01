@@ -96,13 +96,15 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Vehicle UUID",
                         "name": "vehicle_id",
-                        "in": "query"
+                        "in": "query",
+                        "required": true
                     },
                     {
                         "type": "string",
                         "description": "Customer UUID",
                         "name": "customer_id",
-                        "in": "query"
+                        "in": "query",
+                        "required": true
                     },
                     {
                         "type": "array",
@@ -112,12 +114,6 @@ const docTemplate = `{
                         "collectionFormat": "multi",
                         "description": "Service type identifiers (repeatable)",
                         "name": "services",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Total service duration in minutes",
-                        "name": "total_duration_minutes",
                         "in": "query",
                         "required": true
                     },
@@ -179,12 +175,17 @@ const docTemplate = `{
         "httpHandler.bookAppointmentRequest": {
             "type": "object",
             "required": [
+                "customer_id",
                 "dealership_id",
                 "desired_start_time",
                 "services",
                 "vehicle_id"
             ],
             "properties": {
+                "customer_id": {
+                    "type": "string",
+                    "example": "c1a2b3c4-d5e6-7890-abcd-ef1234567890"
+                },
                 "dealership_id": {
                     "type": "string",
                     "example": "d1e2f3a4-b5c6-7890-abcd-ef1234567890"

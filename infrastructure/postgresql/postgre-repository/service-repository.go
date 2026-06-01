@@ -4,23 +4,24 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
+
 	"keyloop-test/infrastructure/postgresql/sqlc"
 	"keyloop-test/internal/domain"
 	repoIntf "keyloop-test/internal/repository"
-	"strconv"
 
 	"github.com/google/uuid"
 )
 
-type serviceDefinitionRepo struct {
+type serviceRepo struct {
 	q *sqlc.Queries
 }
 
-func NewServiceDefinitionRepository(db *sql.DB) repoIntf.ServiceDefinitionRepository {
-	return &serviceDefinitionRepo{q: sqlc.New(db)}
+func NewServiceRepository(db *sql.DB) repoIntf.ServiceRepository {
+	return &serviceRepo{q: sqlc.New(db)}
 }
 
-func toServiceDomain(s sqlc.ServiceDefinition) (*domain.Service, error) {
+func toServiceDomain(s sqlc.Service) (*domain.Service, error) {
 	price, err := strconv.ParseFloat(s.Price, 64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid price %q: %w", s.Price, err)
@@ -38,16 +39,16 @@ func toServiceDomain(s sqlc.ServiceDefinition) (*domain.Service, error) {
 	}, nil
 }
 
-func (r *serviceDefinitionRepo) GetServiceDefinition(ctx context.Context, id string) (*domain.Service, error) {
-	row, err := r.q.GetServiceDefinition(ctx, uuid.MustParse(id))
+func (r *serviceRepo) GetService(ctx context.Context, id string) (*domain.Service, error) {
+	row, err := r.q.GetService(ctx, uuid.MustParse(id))
 	if err != nil {
 		return nil, err
 	}
 	return toServiceDomain(row)
 }
 
-func (r *serviceDefinitionRepo) ListServiceDefinitions(ctx context.Context) ([]*domain.Service, error) {
-	rows, err := r.q.ListServiceDefinitions(ctx)
+func (r *serviceRepo) ListServices(ctx context.Context) ([]*domain.Service, error) {
+	rows, err := r.q.ListServices(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -62,9 +63,9 @@ func (r *serviceDefinitionRepo) ListServiceDefinitions(ctx context.Context) ([]*
 	return res, nil
 }
 
-func (r *serviceDefinitionRepo) CreateServiceDefinition(ctx context.Context, s *domain.Service) error {
+func (r *serviceRepo) CreateService(ctx context.Context, s *domain.Service) error {
 	uid, _ := uuid.Parse(s.ID)
-	created, err := r.q.CreateServiceDefinition(ctx, sqlc.CreateServiceDefinitionParams{
+	created, err := r.q.CreateService(ctx, sqlc.CreateServiceParams{
 		ID:               uid,
 		Name:             s.Name,
 		Description:      s.Description,
@@ -80,9 +81,9 @@ func (r *serviceDefinitionRepo) CreateServiceDefinition(ctx context.Context, s *
 	return nil
 }
 
-func (r *serviceDefinitionRepo) UpdateServiceDefinition(ctx context.Context, s *domain.Service) error {
+func (r *serviceRepo) UpdateService(ctx context.Context, s *domain.Service) error {
 	uid, _ := uuid.Parse(s.ID)
-	updated, err := r.q.UpdateServiceDefinition(ctx, sqlc.UpdateServiceDefinitionParams{
+	updated, err := r.q.UpdateService(ctx, sqlc.UpdateServiceParams{
 		ID:               uid,
 		Name:             s.Name,
 		Description:      s.Description,
@@ -97,10 +98,10 @@ func (r *serviceDefinitionRepo) UpdateServiceDefinition(ctx context.Context, s *
 	return nil
 }
 
-func (r *serviceDefinitionRepo) DeleteServiceDefinition(ctx context.Context, id string) error {
+func (r *serviceRepo) DeleteService(ctx context.Context, id string) error {
 	uid, err := uuid.Parse(id)
 	if err != nil {
 		return err
 	}
-	return r.q.DeleteServiceDefinition(ctx, uid)
+	return r.q.DeleteService(ctx, uid)
 }

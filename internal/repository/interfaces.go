@@ -39,12 +39,12 @@ type ServiceBayRepository interface {
 	DeleteServiceBay(ctx context.Context, id string) error
 }
 
-type ServiceDefinitionRepository interface {
-	GetServiceDefinition(ctx context.Context, id string) (*domain.Service, error)
-	ListServiceDefinitions(ctx context.Context) ([]*domain.Service, error)
-	CreateServiceDefinition(ctx context.Context, def *domain.Service) error
-	UpdateServiceDefinition(ctx context.Context, def *domain.Service) error
-	DeleteServiceDefinition(ctx context.Context, id string) error
+type ServiceRepository interface {
+	GetService(ctx context.Context, id string) (*domain.Service, error)
+	ListServices(ctx context.Context) ([]*domain.Service, error)
+	CreateService(ctx context.Context, service *domain.Service) error
+	UpdateService(ctx context.Context, service *domain.Service) error
+	DeleteService(ctx context.Context, id string) error
 }
 
 type TechnicianRepository interface {

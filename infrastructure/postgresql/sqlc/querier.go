@@ -17,16 +17,16 @@ type Querier interface {
 	CreateAppointment(ctx context.Context, arg CreateAppointmentParams) (Appointment, error)
 	CreateCustomer(ctx context.Context, arg CreateCustomerParams) (Customer, error)
 	CreateDealership(ctx context.Context, arg CreateDealershipParams) (Dealership, error)
+	CreateService(ctx context.Context, arg CreateServiceParams) (Service, error)
 	CreateServiceBay(ctx context.Context, arg CreateServiceBayParams) (ServiceBay, error)
-	CreateServiceDefinition(ctx context.Context, arg CreateServiceDefinitionParams) (ServiceDefinition, error)
 	CreateTechnician(ctx context.Context, arg CreateTechnicianParams) (Technician, error)
 	CreateTechnicianSkill(ctx context.Context, arg CreateTechnicianSkillParams) error
 	CreateVehicle(ctx context.Context, arg CreateVehicleParams) (Vehicle, error)
 	DeleteAppointment(ctx context.Context, id uuid.UUID) error
 	DeleteCustomer(ctx context.Context, id uuid.UUID) error
 	DeleteDealership(ctx context.Context, id uuid.UUID) error
+	DeleteService(ctx context.Context, id uuid.UUID) error
 	DeleteServiceBay(ctx context.Context, id uuid.UUID) error
-	DeleteServiceDefinition(ctx context.Context, id uuid.UUID) error
 	DeleteTechnician(ctx context.Context, id uuid.UUID) error
 	DeleteTechnicianSkill(ctx context.Context, arg DeleteTechnicianSkillParams) error
 	DeleteVehicle(ctx context.Context, id uuid.UUID) error
@@ -45,13 +45,13 @@ type Querier interface {
 	// =========================================================================
 	GetDealership(ctx context.Context, id uuid.UUID) (Dealership, error)
 	// =========================================================================
+	// SERVICE
+	// =========================================================================
+	GetService(ctx context.Context, id uuid.UUID) (Service, error)
+	// =========================================================================
 	// SERVICE BAYS
 	// =========================================================================
 	GetServiceBay(ctx context.Context, id uuid.UUID) (ServiceBay, error)
-	// =========================================================================
-	// SERVICE DEFINITIONS
-	// =========================================================================
-	GetServiceDefinition(ctx context.Context, id uuid.UUID) (ServiceDefinition, error)
 	// =========================================================================
 	// TECHNICIANS
 	// =========================================================================
@@ -65,7 +65,7 @@ type Querier interface {
 	ListCustomers(ctx context.Context) ([]Customer, error)
 	ListDealerships(ctx context.Context) ([]Dealership, error)
 	ListServiceBaysByDealership(ctx context.Context, dealershipID uuid.UUID) ([]ServiceBay, error)
-	ListServiceDefinitions(ctx context.Context) ([]ServiceDefinition, error)
+	ListServices(ctx context.Context) ([]Service, error)
 	// =========================================================================
 	// TECHNICIAN SKILLS
 	// =========================================================================
@@ -75,8 +75,8 @@ type Querier interface {
 	UpdateAppointmentStatus(ctx context.Context, arg UpdateAppointmentStatusParams) (Appointment, error)
 	UpdateCustomer(ctx context.Context, arg UpdateCustomerParams) (Customer, error)
 	UpdateDealership(ctx context.Context, arg UpdateDealershipParams) (Dealership, error)
+	UpdateService(ctx context.Context, arg UpdateServiceParams) (Service, error)
 	UpdateServiceBay(ctx context.Context, arg UpdateServiceBayParams) (ServiceBay, error)
-	UpdateServiceDefinition(ctx context.Context, arg UpdateServiceDefinitionParams) (ServiceDefinition, error)
 	UpdateTechnician(ctx context.Context, arg UpdateTechnicianParams) (Technician, error)
 	UpdateVehicle(ctx context.Context, arg UpdateVehicleParams) (Vehicle, error)
 }

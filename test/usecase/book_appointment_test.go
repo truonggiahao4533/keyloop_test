@@ -74,19 +74,15 @@ type stubServiceDefRepo struct {
 	err     error
 }
 
-func (s *stubServiceDefRepo) GetServiceDefinition(_ context.Context, _ string) (*domain.Service, error) {
+func (s *stubServiceDefRepo) GetService(_ context.Context, _ string) (*domain.Service, error) {
 	return s.service, s.err
 }
-func (s *stubServiceDefRepo) ListServiceDefinitions(_ context.Context) ([]*domain.Service, error) {
+func (s *stubServiceDefRepo) ListServices(_ context.Context) ([]*domain.Service, error) {
 	return nil, nil
 }
-func (s *stubServiceDefRepo) CreateServiceDefinition(_ context.Context, _ *domain.Service) error {
-	return nil
-}
-func (s *stubServiceDefRepo) UpdateServiceDefinition(_ context.Context, _ *domain.Service) error {
-	return nil
-}
-func (s *stubServiceDefRepo) DeleteServiceDefinition(_ context.Context, _ string) error { return nil }
+func (s *stubServiceDefRepo) CreateService(_ context.Context, _ *domain.Service) error { return nil }
+func (s *stubServiceDefRepo) UpdateService(_ context.Context, _ *domain.Service) error { return nil }
+func (s *stubServiceDefRepo) DeleteService(_ context.Context, _ string) error          { return nil }
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -149,9 +145,9 @@ func (s *stubAppointmentRepo) DeleteAppointment(_ context.Context, _ string) err
 // ─────────────────────────────────────────────────────────────────────────────
 
 type stubCache struct {
-	service *domain.Service
-	hit     bool
-	err     error
+	service  *domain.Service
+	hit      bool
+	err      error
 	setCalls int
 }
 
@@ -707,11 +703,10 @@ func (s *configuredAvailabilityRepo) GetAvailableSlots(_ context.Context, _, _ t
 
 func availableSlotsReq() *usecase.AvailableSlotsInput {
 	return &usecase.AvailableSlotsInput{
-		DealershipID:  "d-001",
-		Services:      []string{"oil_change"},
-		TotalDuration: 30 * time.Minute,
-		VehicleID:     "v-001",
-		DesiredDate:   futureTime(8),
+		DealershipID: "d-001",
+		Services:     []string{"oil_change"},
+		VehicleID:    "v-001",
+		DesiredDate:  futureTime(8),
 	}
 }
 
@@ -748,7 +743,8 @@ func TestAvailableSlots_DesiredDateInPast(t *testing.T) {
 func TestAvailableSlots_DealershipNotFound(t *testing.T) {
 	uc := newUC(
 		&stubDealershipRepo{err: errors.New("not found")},
-		&stubServiceDefRepo{}, &stubVehicleRepo{}, &stubAppointmentRepo{}, &stubCache{},
+		&stubServiceDefRepo{}, &stubVehicleRepo{}, &stubAppointmentRepo{},
+		&stubCache{service: oilChangeService(), hit: true},
 	)
 	_, err := uc.AvailableSlots(context.Background(), availableSlotsReq())
 	if !errors.Is(err, usecase.ErrDealershipNotFound) {
@@ -761,7 +757,8 @@ func TestAvailableSlots_VehicleNotFound(t *testing.T) {
 		&stubDealershipRepo{dealership: openDealership()},
 		&stubServiceDefRepo{},
 		&stubVehicleRepo{err: errors.New("vehicle not found")},
-		&stubAppointmentRepo{}, &stubCache{},
+		&stubAppointmentRepo{},
+		&stubCache{service: oilChangeService(), hit: true},
 	)
 	_, err := uc.AvailableSlots(context.Background(), availableSlotsReq())
 	if !errors.Is(err, usecase.ErrVehicleNotFound) {
@@ -793,7 +790,7 @@ func TestAvailableSlots_FiltersOutsideBusinessHours(t *testing.T) {
 		&stubTechnicianRepo{},
 		&stubServiceDefRepo{},
 		vehicleRepo,
-		&stubCache{},
+		&stubCache{service: oilChangeService(), hit: true},
 		slotRepo,
 		&stubAppointmentRepo{},
 	)
@@ -819,7 +816,7 @@ func TestAvailableSlots_EmptyResult_ReturnsEmptySlice(t *testing.T) {
 		&stubTechnicianRepo{},
 		&stubServiceDefRepo{},
 		vehicleRepo,
-		&stubCache{},
+		&stubCache{service: oilChangeService(), hit: true},
 		slotRepo,
 		&stubAppointmentRepo{},
 	)
@@ -841,22 +838,15 @@ type multiServiceDefRepo struct {
 	services map[string]*domain.Service
 }
 
-func (m *multiServiceDefRepo) GetServiceDefinition(_ context.Context, id string) (*domain.Service, error) {
+func (m *multiServiceDefRepo) GetService(_ context.Context, id string) (*domain.Service, error) {
 	if svc, ok := m.services[id]; ok {
 		return svc, nil
 	}
 	return nil, errors.New("not found")
 }
-func (m *multiServiceDefRepo) ListServiceDefinitions(_ context.Context) ([]*domain.Service, error) {
+func (m *multiServiceDefRepo) ListServices(_ context.Context) ([]*domain.Service, error) {
 	return nil, nil
 }
-func (m *multiServiceDefRepo) CreateServiceDefinition(_ context.Context, _ *domain.Service) error {
-	return nil
-}
-func (m *multiServiceDefRepo) UpdateServiceDefinition(_ context.Context, _ *domain.Service) error {
-	return nil
-}
-func (m *multiServiceDefRepo) DeleteServiceDefinition(_ context.Context, _ string) error {
-	return nil
-}
-
+func (m *multiServiceDefRepo) CreateService(_ context.Context, _ *domain.Service) error { return nil }
+func (m *multiServiceDefRepo) UpdateService(_ context.Context, _ *domain.Service) error { return nil }
+func (m *multiServiceDefRepo) DeleteService(_ context.Context, _ string) error          { return nil }

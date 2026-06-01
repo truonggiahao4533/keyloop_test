@@ -1,0 +1,113 @@
+package postgrerepository
+
+import (
+	"context"
+	"database/sql"
+
+	"keyloop-test/infrastructure/postgresql/sqlc"
+	"keyloop-test/internal/domain"
+	repoIntf "keyloop-test/internal/repository"
+
+	"github.com/google/uuid"
+)
+
+type dealershipRepo struct {
+	q *sqlc.Queries
+}
+
+func NewDealershipRepository(db *sql.DB) repoIntf.DealershipRepository {
+	return &dealershipRepo{q: sqlc.New(db)}
+}
+
+func (r *dealershipRepo) GetDealership(ctx context.Context, id string) (*domain.Dealership, error) {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return nil, err
+	}
+	d, err := r.q.GetDealership(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+	return &domain.Dealership{
+		ID:        d.ID.String(),
+		Name:      d.Name,
+		Address:   d.Address,
+		City:      d.City,
+		Phone:     d.Phone,
+		IsActive:  d.IsActive,
+		OpenTime:  timeToDuration(d.OpenTime),
+		CloseTime: timeToDuration(d.CloseTime),
+		CreatedAt: d.CreatedAt,
+		UpdatedAt: d.UpdatedAt,
+	}, nil
+}
+
+func (r *dealershipRepo) ListDealerships(ctx context.Context) ([]*domain.Dealership, error) {
+	ds, err := r.q.ListDealerships(ctx)
+	if err != nil {
+		return nil, err
+	}
+	res := make([]*domain.Dealership, len(ds))
+	for i, d := range ds {
+		res[i] = &domain.Dealership{
+			ID:        d.ID.String(),
+			Name:      d.Name,
+			Address:   d.Address,
+			City:      d.City,
+			Phone:     d.Phone,
+			IsActive:  d.IsActive,
+			OpenTime:  timeToDuration(d.OpenTime),
+			CloseTime: timeToDuration(d.CloseTime),
+			CreatedAt: d.CreatedAt,
+			UpdatedAt: d.UpdatedAt,
+		}
+	}
+	return res, nil
+}
+
+func (r *dealershipRepo) CreateDealership(ctx context.Context, d *domain.Dealership) error {
+	uid, _ := uuid.Parse(d.ID)
+	created, err := r.q.CreateDealership(ctx, sqlc.CreateDealershipParams{
+		ID:        uid,
+		Name:      d.Name,
+		Address:   d.Address,
+		City:      d.City,
+		Phone:     d.Phone,
+		IsActive:  d.IsActive,
+		OpenTime:  durationToTime(d.OpenTime),
+		CloseTime: durationToTime(d.CloseTime),
+	})
+	if err != nil {
+		return err
+	}
+	d.CreatedAt = created.CreatedAt
+	d.UpdatedAt = created.UpdatedAt
+	return nil
+}
+
+func (r *dealershipRepo) UpdateDealership(ctx context.Context, d *domain.Dealership) error {
+	uid, _ := uuid.Parse(d.ID)
+	updated, err := r.q.UpdateDealership(ctx, sqlc.UpdateDealershipParams{
+		ID:        uid,
+		Name:      d.Name,
+		Address:   d.Address,
+		City:      d.City,
+		Phone:     d.Phone,
+		IsActive:  d.IsActive,
+		OpenTime:  durationToTime(d.OpenTime),
+		CloseTime: durationToTime(d.CloseTime),
+	})
+	if err != nil {
+		return err
+	}
+	d.UpdatedAt = updated.UpdatedAt
+	return nil
+}
+
+func (r *dealershipRepo) DeleteDealership(ctx context.Context, id string) error {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return err
+	}
+	return r.q.DeleteDealership(ctx, uid)
+}

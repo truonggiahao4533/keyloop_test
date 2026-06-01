@@ -168,24 +168,24 @@ DELETE FROM service_bays WHERE id = $1;
 
 
 -- =========================================================================
--- SERVICE DEFINITIONS
+-- SERVICE 
 -- =========================================================================
 
--- name: GetServiceDefinition :one
-SELECT * FROM service_definitions WHERE id = $1;
+-- name: GetService :one
+SELECT * FROM services WHERE id = $1;
 
--- name: ListServiceDefinitions :many
-SELECT * FROM service_definitions ORDER BY name ASC;
+-- name: ListServices :many
+SELECT * FROM services ORDER BY name ASC;
 
--- name: CreateServiceDefinition :one
-INSERT INTO service_definitions (
+-- name: CreateService :one
+INSERT INTO services (
   id, name, description, estimated_minutes, price, is_active
 ) VALUES (
   $1, $2, $3, $4, $5, $6
 ) RETURNING *;
 
--- name: UpdateServiceDefinition :one
-UPDATE service_definitions
+-- name: UpdateService :one
+UPDATE services 
 SET name = $2,
     description = $3,
     estimated_minutes = $4,
@@ -195,8 +195,8 @@ SET name = $2,
 WHERE id = $1
 RETURNING *;
 
--- name: DeleteServiceDefinition :exec
-DELETE FROM service_definitions WHERE id = $1;
+-- name: DeleteService :exec
+DELETE FROM services WHERE id = $1;
 
 
 -- =========================================================================
@@ -238,13 +238,13 @@ SELECT * FROM technician_skills WHERE technician_id = $1;
 
 -- name: CreateTechnicianSkill :exec
 INSERT INTO technician_skills (
-  technician_id, service_definition_id
+  technician_id, service_id
 ) VALUES (
   $1, $2
 );
 
 -- name: DeleteTechnicianSkill :exec
-DELETE FROM technician_skills WHERE technician_id = $1 AND service_definition_id = $2;
+  DELETE FROM technician_skills WHERE technician_id = $1 AND service_id = $2;
 
 
 -- =========================================================================

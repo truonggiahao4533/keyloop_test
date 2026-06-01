@@ -34,7 +34,7 @@ migrate-force:
 
 ## Regenerate Swagger docs (fixes swag v2 → v1 import incompatibility automatically)
 swagger:
-	swag init -g cmd/api/main.go -o docs
+	swag init -g main.go -d ./cmd/api,./internal/adapter/http -o docs
 	sed -i 's|"github.com/swaggo/swag/v2"|"github.com/swaggo/swag"|' docs/docs.go
 	sed -i '/LeftDelim:/d; /RightDelim:/d' docs/docs.go
 
@@ -56,6 +56,9 @@ build:
 
 down:
 	docker compose -f docker-compose.yml --env-file .env down
+
+watch:
+	docker logs -f keyloop-test-app
 
 test-domain:
 	go test -tags=domain ./test/domain/... -v

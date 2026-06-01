@@ -5,6 +5,7 @@ import (
 	"errors"
 	"keyloop-test/internal/domain"
 	"keyloop-test/internal/repository"
+	"log"
 	"time"
 )
 
@@ -20,14 +21,14 @@ var (
 )
 
 type AppoinmentBookingUseCase struct {
-	dealershipRepo        repository.DealershipRepository
-	serviceBayRepo        repository.ServiceBayRepository
-	technicianRepo        repository.TechnicianRepository
-	serviceDefinitionRepo repository.ServiceDefinitionRepository
-	vehicleRepo           repository.VehicleRepository
-	serviceCache          ServiceCacheProvider
-	availabilitySlotRepo  repository.AvailabilitySlotRepository
-	appointmentRepo       repository.AppointmentRepository
+	dealershipRepo       repository.DealershipRepository
+	serviceBayRepo       repository.ServiceBayRepository
+	technicianRepo       repository.TechnicianRepository
+	serviceRepo          repository.ServiceRepository
+	vehicleRepo          repository.VehicleRepository
+	serviceCache         ServiceCacheProvider
+	availabilitySlotRepo repository.AvailabilitySlotRepository
+	appointmentRepo      repository.AppointmentRepository
 }
 
 // NewAppointmentBookingUseCase creates a new instance of AppoinmentBookingUseCase.
@@ -35,21 +36,21 @@ func NewAppointmentBookingUseCase(
 	dealershipRepo repository.DealershipRepository,
 	serviceBayRepo repository.ServiceBayRepository,
 	technicianRepo repository.TechnicianRepository,
-	serviceDefinitionRepo repository.ServiceDefinitionRepository,
+	serviceRepo repository.ServiceRepository,
 	vehicleRepo repository.VehicleRepository,
 	serviceCache ServiceCacheProvider,
 	availabilitySlotRepo repository.AvailabilitySlotRepository,
 	appointmentRepo repository.AppointmentRepository,
 ) *AppoinmentBookingUseCase {
 	return &AppoinmentBookingUseCase{
-		dealershipRepo:        dealershipRepo,
-		serviceBayRepo:        serviceBayRepo,
-		technicianRepo:        technicianRepo,
-		serviceDefinitionRepo: serviceDefinitionRepo,
-		vehicleRepo:           vehicleRepo,
-		serviceCache:          serviceCache,
-		availabilitySlotRepo:  availabilitySlotRepo,
-		appointmentRepo:       appointmentRepo,
+		dealershipRepo:       dealershipRepo,
+		serviceBayRepo:       serviceBayRepo,
+		technicianRepo:       technicianRepo,
+		serviceRepo:          serviceRepo,
+		vehicleRepo:          vehicleRepo,
+		serviceCache:         serviceCache,
+		availabilitySlotRepo: availabilitySlotRepo,
+		appointmentRepo:      appointmentRepo,
 	}
 }
 
@@ -87,7 +88,7 @@ func (uc *AppoinmentBookingUseCase) BookAppointment(ctx context.Context, req *Ap
 		//If cache miss or error, get from DB and populate cache. If DB error, return error
 		if !ok || err != nil {
 			//Cache miss, get from DB and populate cache
-			def, err := uc.serviceDefinitionRepo.GetServiceDefinition(ctx, s)
+			def, err := uc.serviceRepo.GetService(ctx, s)
 			if err != nil {
 				return nil, errors.New("service " + s + " not found")
 			}
@@ -151,12 +152,11 @@ func (uc *AppoinmentBookingUseCase) BookAppointment(ctx context.Context, req *Ap
 }
 
 type AvailableSlotsInput struct {
-	CustomerID    string
-	DealershipID  string
-	Services      []string
-	TotalDuration time.Duration
-	VehicleID     string
-	DesiredDate   time.Time
+	CustomerID   string
+	DealershipID string
+	Services     []string
+	VehicleID    string
+	DesiredDate  time.Time
 }
 
 type AvailableSlotsOutput struct {
@@ -182,6 +182,27 @@ func (uc *AppoinmentBookingUseCase) AvailableSlots(ctx context.Context, req *Ava
 		return nil, ErrDesiredDateInPast
 	}
 
+	var totalDuration time.Duration
+	for _, s := range req.Services {
+		service, ok, err := uc.serviceCache.GetService(ctx, s)
+		if !ok || err != nil {
+
+			def, err := uc.serviceRepo.GetService(ctx, s)
+			if err != nil {
+				log.Println("error getting service from DB:", err)
+				return nil, errors.New("service " + s + " not found")
+			}
+			service = &domain.Service{
+				ID:               def.ID,
+				Name:             def.Name,
+				EstimatedMinutes: def.EstimatedMinutes,
+				Price:            def.Price,
+			}
+			uc.serviceCache.SetService(ctx, s, service, serviceCacheTTL)
+		}
+		totalDuration += time.Duration(service.EstimatedMinutes) * time.Minute
+	}
+
 	dealership, err := uc.dealershipRepo.GetDealership(ctx, req.DealershipID)
 	if err != nil {
 		return nil, ErrDealershipNotFound
@@ -196,7 +217,7 @@ func (uc *AppoinmentBookingUseCase) AvailableSlots(ctx context.Context, req *Ava
 	//Assume available slot is within 7 days
 	endTime := req.DesiredDate.Add(7 * 24 * time.Hour)
 
-	rawSlots, err := uc.availabilitySlotRepo.GetAvailableSlots(ctx, startTime, endTime, req.DealershipID, req.TotalDuration, req.Services)
+	rawSlots, err := uc.availabilitySlotRepo.GetAvailableSlots(ctx, startTime, endTime, req.DealershipID, totalDuration, req.Services)
 	if err != nil {
 		return nil, err
 	}

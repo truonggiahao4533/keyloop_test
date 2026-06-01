@@ -187,18 +187,7 @@ type Dealership struct {
 	UpdatedAt time.Time    `json:"updated_at"`
 }
 
-type ServiceBay struct {
-	ID           uuid.UUID    `json:"id"`
-	DealershipID uuid.UUID    `json:"dealership_id"`
-	Name         string       `json:"name"`
-	BayNumber    int32        `json:"bay_number"`
-	Status       BayStatus    `json:"status"`
-	DeletedAt    sql.NullTime `json:"deleted_at"`
-	CreatedAt    time.Time    `json:"created_at"`
-	UpdatedAt    time.Time    `json:"updated_at"`
-}
-
-type ServiceDefinition struct {
+type Service struct {
 	ID               uuid.UUID    `json:"id"`
 	Name             string       `json:"name"`
 	Description      string       `json:"description"`
@@ -208,6 +197,17 @@ type ServiceDefinition struct {
 	DeletedAt        sql.NullTime `json:"deleted_at"`
 	CreatedAt        time.Time    `json:"created_at"`
 	UpdatedAt        time.Time    `json:"updated_at"`
+}
+
+type ServiceBay struct {
+	ID           uuid.UUID    `json:"id"`
+	DealershipID uuid.UUID    `json:"dealership_id"`
+	Name         string       `json:"name"`
+	BayNumber    int32        `json:"bay_number"`
+	Status       BayStatus    `json:"status"`
+	DeletedAt    sql.NullTime `json:"deleted_at"`
+	CreatedAt    time.Time    `json:"created_at"`
+	UpdatedAt    time.Time    `json:"updated_at"`
 }
 
 type Technician struct {
@@ -222,8 +222,8 @@ type Technician struct {
 }
 
 type TechnicianSkill struct {
-	TechnicianID        uuid.UUID `json:"technician_id"`
-	ServiceDefinitionID uuid.UUID `json:"service_definition_id"`
+	TechnicianID uuid.UUID `json:"technician_id"`
+	ServiceID    uuid.UUID `json:"service_id"`
 }
 
 type Vehicle struct {

@@ -2,15 +2,12 @@ package httpHandler
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
 	"keyloop-test/internal/usecase"
 
 	"github.com/gin-gonic/gin"
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
 type AppointmentHandler struct {
@@ -21,19 +18,10 @@ func NewAppointmentHandler(uc *usecase.AppoinmentBookingUseCase) *AppointmentHan
 	return &AppointmentHandler{uc: uc}
 }
 
-func (h *AppointmentHandler) RegisterRoutes(r *gin.Engine) {
-	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-
-	v1 := r.Group("/api/v1")
-	{
-		v1.POST("/appointments", h.BookAppointment)
-		v1.GET("/appointments/available-slots", h.GetAvailableSlots)
-	}
-}
-
 // Request / response types
 
 type bookAppointmentRequest struct {
+	CustomerID       string    `json:"customer_id"    binding:"required" example:"c1a2b3c4-d5e6-7890-abcd-ef1234567890"`
 	DealershipID     string    `json:"dealership_id"  binding:"required" example:"d1e2f3a4-b5c6-7890-abcd-ef1234567890"`
 	VehicleID        string    `json:"vehicle_id"     binding:"required" example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`
 	Services         []string  `json:"services"       binding:"required,min=1" example:"oil_change,tire_rotation"`
@@ -79,14 +67,12 @@ func (h *AppointmentHandler) BookAppointment(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	mockCustomerID := "c1a2b3c4-d5e6-7890-abcd-ef1234567890" //TODO: Get from auth context
-
 	out, err := h.uc.BookAppointment(c.Request.Context(), &usecase.AppoinmentBookingInput{
+		CustomerID:       req.CustomerID, //TODO: Replace with JWT token claim
 		DealershipID:     req.DealershipID,
 		VehicleID:        req.VehicleID,
 		Services:         req.Services,
 		DesiredStartTime: req.DesiredStartTime,
-		CustomerID:       mockCustomerID,
 	})
 	if err != nil {
 		c.JSON(appointmentErrorStatus(err), gin.H{"error": err.Error()})
@@ -107,10 +93,9 @@ func (h *AppointmentHandler) BookAppointment(c *gin.Context) {
 // @Tags         appointments
 // @Produce      json
 // @Param        dealership_id          query     string    true   "Dealership UUID"
-// @Param        vehicle_id             query     string    false  "Vehicle UUID"
-// @Param        customer_id            query     string    false  "Customer UUID"
-// @Param        services               query     []string  false  "Service type identifiers (repeatable)"  collectionFormat(multi)
-// @Param        total_duration_minutes query     int       true   "Total service duration in minutes"
+// @Param        vehicle_id             query     string    true  "Vehicle UUID"
+// @Param        customer_id            query     string    true  "Customer UUID"
+// @Param        services               query     []string  true  "Service type identifiers (repeatable)"  collectionFormat(multi)
 // @Param        desired_time           query     string    true   "Desired start datetime (RFC3339)"
 // @Success      200  {object}  availableSlotsResponse
 // @Failure      400  {object}  errorResponse
@@ -124,10 +109,9 @@ func (h *AppointmentHandler) GetAvailableSlots(c *gin.Context) {
 	customerID := c.Query("customer_id")
 	serviceTypes := c.QueryArray("services")
 	desiredTimeStr := c.Query("desired_time")
-	totalDurStr := c.Query("total_duration_minutes")
 
-	if dealershipID == "" || desiredTimeStr == "" || totalDurStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dealership_id, desired_time, and total_duration_minutes are required"})
+	if dealershipID == "" || desiredTimeStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "dealership_id and desired_time are required"})
 		return
 	}
 
@@ -137,19 +121,12 @@ func (h *AppointmentHandler) GetAvailableSlots(c *gin.Context) {
 		return
 	}
 
-	var totalMinutes int
-	if _, err := fmt.Sscanf(totalDurStr, "%d", &totalMinutes); err != nil || totalMinutes <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "total_duration_minutes must be a positive integer"})
-		return
-	}
-
 	out, err := h.uc.AvailableSlots(c.Request.Context(), &usecase.AvailableSlotsInput{
-		CustomerID:    customerID,
-		DealershipID:  dealershipID,
-		Services:      serviceTypes,
-		TotalDuration: time.Duration(totalMinutes) * time.Minute,
-		VehicleID:     vehicleID,
-		DesiredDate:   desiredTime,
+		CustomerID:   customerID,
+		DealershipID: dealershipID,
+		Services:     serviceTypes,
+		VehicleID:    vehicleID,
+		DesiredDate:  desiredTime,
 	})
 	if err != nil {
 		c.JSON(appointmentErrorStatus(err), gin.H{"error": err.Error()})

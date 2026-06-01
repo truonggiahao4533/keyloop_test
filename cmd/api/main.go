@@ -25,10 +25,19 @@ import (
 func main() {
 	godotenv.Load() // Load environment variables from .env file
 	// Initialize Database
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		dbURL = "postgres://user:pass@localhost:5432/dbname?sslmode=disable"
+	postgre_host := os.Getenv("POSTGRES_HOST")
+	postgre_port := os.Getenv("POSTGRES_PORT")
+	postgre_user := os.Getenv("POSTGRES_USER")
+	postgre_password := os.Getenv("POSTGRES_PASSWORD")
+	postgre_dbName := os.Getenv("POSTGRES_DB")
+	if postgre_host == "" {
+		postgre_host = "localhost"
 	}
+	if postgre_port == "" {
+		postgre_port = "5432"
+	}
+
+	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", postgre_user, postgre_password, postgre_host, postgre_port, postgre_dbName)
 
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
@@ -45,7 +54,7 @@ func main() {
 	dealershipRepo := postgrerepository.NewDealershipRepository(db)
 	serviceBayRepo := postgrerepository.NewServiceBayRepository(db)
 	technicianRepo := postgrerepository.NewTechnicianRepository(db)
-	serviceDefRepo := postgrerepository.NewServiceDefinitionRepository(db)
+	serviceRepo := postgrerepository.NewServiceRepository(db)
 	vehicleRepo := postgrerepository.NewVehicleRepository(db)
 	availabilitySlotRepo := postgrerepository.NewAvailabilitySlotRepository(db)
 	appointmentRepo := postgrerepository.NewAppointmentRepository(db)
@@ -55,7 +64,7 @@ func main() {
 		dealershipRepo,
 		serviceBayRepo,
 		technicianRepo,
-		serviceDefRepo,
+		serviceRepo,
 		vehicleRepo,
 		serviceCache,
 		availabilitySlotRepo,
@@ -63,15 +72,19 @@ func main() {
 	)
 
 	//Run gin server
-	router := gin.Default()
-	httpHandler.NewAppointmentHandler(appointmentUC).RegisterRoutes(router)
+	r := gin.Default()
+
+	// Initialize Handlers and Routes
+	appointmentHandler := httpHandler.NewAppointmentHandler(appointmentUC)
+	router := httpHandler.NewRouter(appointmentHandler)
+	router.RegisterRoutes(r)
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 	fmt.Printf("Server listening on :%s\n", port)
-	if err := router.Run(":" + port); err != nil {
+	if err := r.Run(":" + port); err != nil {
 		panic("failed to start server: " + err.Error())
 	}
 }

@@ -9,6 +9,9 @@ definitions:
     type: object
   httpHandler.bookAppointmentRequest:
     properties:
+      customer_id:
+        example: c1a2b3c4-d5e6-7890-abcd-ef1234567890
+        type: string
       dealership_id:
         example: d1e2f3a4-b5c6-7890-abcd-ef1234567890
         type: string
@@ -27,6 +30,7 @@ definitions:
         example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
         type: string
     required:
+    - customer_id
     - dealership_id
     - desired_start_time
     - services
@@ -118,10 +122,12 @@ paths:
       - description: Vehicle UUID
         in: query
         name: vehicle_id
+        required: true
         type: string
       - description: Customer UUID
         in: query
         name: customer_id
+        required: true
         type: string
       - collectionFormat: multi
         description: Service type identifiers (repeatable)
@@ -129,12 +135,8 @@ paths:
         items:
           type: string
         name: services
-        type: array
-      - description: Total service duration in minutes
-        in: query
-        name: total_duration_minutes
         required: true
-        type: integer
+        type: array
       - description: Desired start datetime (RFC3339)
         in: query
         name: desired_time
