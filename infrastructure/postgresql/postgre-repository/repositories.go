@@ -38,7 +38,7 @@ func (r *AvailableSlotRepository) GetAvailableSlots(ctx context.Context, startTi
 		EndDatetime:   endTime,
 		DealershipID:  uuid.Must(uuid.Parse(dealershipID)),
 		ServiceTypes:  services,
-		Duration:      int64(duration),
+		Duration:      int64(duration.Seconds()),
 	}
 	starts, err := r.q.GetAvailableSlots(ctx, input)
 	if err != nil {
@@ -69,7 +69,7 @@ func (r *appointmentRepo) GetAppointment(ctx context.Context, id string) (*domai
 	if err != nil {
 		return nil, err
 	}
-	var services []domain.ServiceSnapshot
+	var services []*domain.ServiceSnapshot
 	err = json.Unmarshal(a.Services, &services)
 	if err != nil {
 		return nil, err
@@ -104,7 +104,7 @@ func (r *appointmentRepo) ListAppointmentsByDealership(ctx context.Context, deal
 	}
 	res := make([]domain.Appointment, len(as))
 	for i, a := range as {
-		var services []domain.ServiceSnapshot
+		var services []*domain.ServiceSnapshot
 		err := json.Unmarshal(a.Services, &services)
 		if err != nil {
 			return nil, err
@@ -141,7 +141,7 @@ func (r *appointmentRepo) ListAppointmentsByCustomer(ctx context.Context, custom
 
 	res := make([]domain.Appointment, len(as))
 	for i, a := range as {
-		var services []domain.ServiceSnapshot
+		var services []*domain.ServiceSnapshot
 		err := json.Unmarshal(a.Services, &services)
 		if err != nil {
 			return nil, err
@@ -181,9 +181,9 @@ func (r *appointmentRepo) CreateAppointment(ctx context.Context, appt *domain.Ap
 		return nil, err
 	}
 
-	var services []domain.ServiceSnapshot
+	var services []*domain.ServiceSnapshot
 	for _, s := range appt.Services {
-		services = append(services, domain.ServiceSnapshot{
+		services = append(services, &domain.ServiceSnapshot{
 			ServiceID:        s.ServiceID,
 			Name:             s.Name,
 			EstimatedMinutes: s.EstimatedMinutes,
@@ -195,7 +195,11 @@ func (r *appointmentRepo) CreateAppointment(ctx context.Context, appt *domain.Ap
 	if err != nil {
 		return nil, err
 	}
-	// then pass Services: servicesJSON
+
+	serviceIDs := make([]string, len(services))
+	for i, s := range services {
+		serviceIDs[i] = s.ServiceID
+	}
 
 	result, err := r.q.CreateAppointment(ctx, sqlc.CreateAppointmentParams{
 		CustomerID:   cuid,
@@ -203,8 +207,10 @@ func (r *appointmentRepo) CreateAppointment(ctx context.Context, appt *domain.Ap
 		DealershipID: did,
 		Services:     servicesJSON,
 		StartTime:    appt.StartTime,
-		Duration:     int64(appt.Duration()),
+		EndTime:      appt.EndTime,
+		Status:       sqlc.AppointmentStatus(appt.Status),
 		Notes:        sql.NullString{String: appt.Notes, Valid: appt.Notes != ""},
+		ServiceIds:   serviceIDs,
 	})
 	if err != nil {
 		return nil, err
@@ -232,9 +238,9 @@ func (r *appointmentRepo) UpdateAppointmentStatus(ctx context.Context, appt *dom
 	if err != nil {
 		return err
 	}
-	var services []domain.ServiceSnapshot
+	var services []*domain.ServiceSnapshot
 	for _, s := range appt.Services {
-		services = append(services, domain.ServiceSnapshot{
+		services = append(services, &domain.ServiceSnapshot{
 			ServiceID:        s.ServiceID,
 			Name:             s.Name,
 			EstimatedMinutes: s.EstimatedMinutes,

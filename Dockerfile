@@ -4,7 +4,7 @@
 FROM golang:1.25-bookworm AS builder
 WORKDIR /src
 
-COPY go.mod go.sum main.go ./
+COPY go.mod go.sum cmd/api/main.go ./
 
 RUN go mod download
 
@@ -12,18 +12,16 @@ RUN go mod download
 COPY ./infrastructure ./infrastructure
 COPY ./internal ./internal 
 COPY ./migration ./migration
+COPY ./docs ./docs
 
-# RUN gf build and specify output path
-RUN gf build -o ./bin/app
+# RUN go build and specify output path
+RUN go build -o ./bin/app
 
 
 #RUNTIME
 FROM debian:bookworm-slim
 
-RUN apt-get update && \
-  apt-get install -y libzmq5 \
-  ca-certificates && \
-  rm -rf /var/lib/apt/lists/*
+RUN apt-get update 
 
 
 WORKDIR /app

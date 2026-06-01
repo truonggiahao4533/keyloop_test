@@ -1,21 +1,19 @@
 basePath: /
 definitions:
-  main.availableSlotsResponse:
+  httpHandler.availableSlotsResponse:
     properties:
       available_slots:
         items:
-          $ref: '#/definitions/main.slotJSON'
+          $ref: '#/definitions/httpHandler.slotJSON'
         type: array
     type: object
-  main.bookAppointmentRequest:
+  httpHandler.bookAppointmentRequest:
     properties:
-      chosen_slot:
-        $ref: '#/definitions/main.chosenSlotJSON'
       dealership_id:
         example: d1e2f3a4-b5c6-7890-abcd-ef1234567890
         type: string
-      service_bay_id:
-        example: b1c2d3e4-f5a6-7890-abcd-ef1234567890
+      desired_start_time:
+        example: "2025-01-15T09:00:00Z"
         type: string
       services:
         example:
@@ -25,48 +23,34 @@ definitions:
           type: string
         minItems: 1
         type: array
-      technician_id:
-        example: c1d2e3f4-a5b6-7890-abcd-ef1234567890
-        type: string
       vehicle_id:
         example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
         type: string
     required:
-    - chosen_slot
     - dealership_id
-    - service_bay_id
+    - desired_start_time
     - services
-    - technician_id
     - vehicle_id
     type: object
-  main.bookAppointmentResponse:
+  httpHandler.bookAppointmentResponse:
     properties:
       appointment_id:
         example: f1a2b3c4-d5e6-7890-abcd-ef1234567890
         type: string
+      duration_minutes:
+        example: 75
+        type: integer
       message:
-        example: appointment booked
+        example: Appointment booked successfully
         type: string
     type: object
-  main.chosenSlotJSON:
-    properties:
-      end:
-        example: "2025-01-15T10:00:00Z"
-        type: string
-      start:
-        example: "2025-01-15T09:00:00Z"
-        type: string
-    required:
-    - end
-    - start
-    type: object
-  main.errorResponse:
+  httpHandler.errorResponse:
     properties:
       error:
         example: dealership not found
         type: string
     type: object
-  main.slotJSON:
+  httpHandler.slotJSON:
     properties:
       end:
         example: "2025-01-15T10:00:00Z"
@@ -75,7 +59,7 @@ definitions:
         example: "2025-01-15T09:00:00Z"
         type: string
     type: object
-host: localhost:8080
+host: localhost:8081
 info:
   contact: {}
   description: RESTful API for booking vehicle service appointments at dealerships.
@@ -94,30 +78,30 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/main.bookAppointmentRequest'
+          $ref: '#/definitions/httpHandler.bookAppointmentRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/main.bookAppointmentResponse'
+            $ref: '#/definitions/httpHandler.bookAppointmentResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/main.errorResponse'
+            $ref: '#/definitions/httpHandler.errorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/main.errorResponse'
+            $ref: '#/definitions/httpHandler.errorResponse'
         "422":
           description: Unprocessable Entity
           schema:
-            $ref: '#/definitions/main.errorResponse'
+            $ref: '#/definitions/httpHandler.errorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/main.errorResponse'
+            $ref: '#/definitions/httpHandler.errorResponse'
       summary: Book an appointment
       tags:
       - appointments
@@ -162,23 +146,23 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/main.availableSlotsResponse'
+            $ref: '#/definitions/httpHandler.availableSlotsResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/main.errorResponse'
+            $ref: '#/definitions/httpHandler.errorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/main.errorResponse'
+            $ref: '#/definitions/httpHandler.errorResponse'
         "422":
           description: Unprocessable Entity
           schema:
-            $ref: '#/definitions/main.errorResponse'
+            $ref: '#/definitions/httpHandler.errorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/main.errorResponse'
+            $ref: '#/definitions/httpHandler.errorResponse'
       summary: List available slots
       tags:
       - appointments

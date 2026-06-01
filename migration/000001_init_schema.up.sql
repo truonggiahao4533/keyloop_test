@@ -27,8 +27,11 @@ CREATE TYPE appointment_status AS ENUM (
 --     'mot_inspection'
 -- );
 
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+
+
 CREATE TABLE customers (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     first_name VARCHAR(100) NOT NULL,
     last_name VARCHAR(100) NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
@@ -39,7 +42,7 @@ CREATE TABLE customers (
 );
 
 CREATE TABLE vehicles (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
     make VARCHAR(100) NOT NULL,
     model VARCHAR(100) NOT NULL,
@@ -52,7 +55,7 @@ CREATE TABLE vehicles (
 );
 
 CREATE TABLE dealerships (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
     address VARCHAR(255) NOT NULL,
     city VARCHAR(100) NOT NULL,
@@ -66,7 +69,7 @@ CREATE TABLE dealerships (
 );
 
 CREATE TABLE service_bays (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     dealership_id UUID NOT NULL REFERENCES dealerships(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,
     bay_number INT NOT NULL,
@@ -77,8 +80,8 @@ CREATE TABLE service_bays (
     UNIQUE(dealership_id, bay_number)
 );
 
-CREATE TABLE service_definitions (
-    id UUID PRIMARY KEY,
+CREATE TABLE services (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
     description TEXT NOT NULL,
     estimated_minutes INT NOT NULL,
@@ -90,7 +93,7 @@ CREATE TABLE service_definitions (
 );
 
 CREATE TABLE technicians (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     dealership_id UUID NOT NULL REFERENCES dealerships(id) ON DELETE CASCADE,
     first_name VARCHAR(100) NOT NULL,
     last_name VARCHAR(100) NOT NULL,
@@ -101,14 +104,14 @@ CREATE TABLE technicians (
 );
 
 CREATE TABLE technician_skills (
-    technician_id UUID NOT NULL REFERENCES technicians(id) ON DELETE CASCADE,
-    service_definition_id UUID NOT NULL REFERENCES service_definitions(id) ON DELETE CASCADE,
-    PRIMARY KEY (technician_id, service_definition_id)
+    technician_id         UUID NOT NULL REFERENCES technicians(id) ON DELETE CASCADE,
+    service_id UUID NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+    PRIMARY KEY (technician_id, service_id)
 );
 
 
 CREATE TABLE appointments (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
     vehicle_id UUID NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
     dealership_id UUID NOT NULL REFERENCES dealerships(id) ON DELETE CASCADE,
@@ -136,7 +139,6 @@ CREATE TABLE appointments (
     ) WHERE (deleted_at IS NULL AND status IN ('pending', 'confirmed'))
 );
 
-CREATE EXTENSION IF NOT EXISTS btree_gist;
 
 CREATE INDEX idx_appointments_start_time ON appointments(start_time);
 CREATE INDEX idx_appointments_end_time ON appointments(end_time);

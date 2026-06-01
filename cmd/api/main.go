@@ -1,7 +1,7 @@
 // @title           Keyloop Appointment Booking API
 // @version         1.0
 // @description     RESTful API for booking vehicle service appointments at dealerships.
-// @host            localhost:8080
+// @host            localhost:8081
 // @BasePath        /
 
 package main
@@ -18,10 +18,12 @@ import (
 	"keyloop-test/internal/usecase"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
 
 func main() {
+	godotenv.Load() // Load environment variables from .env file
 	// Initialize Database
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {

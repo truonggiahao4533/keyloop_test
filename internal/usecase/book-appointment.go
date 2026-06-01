@@ -54,64 +54,100 @@ func NewAppointmentBookingUseCase(
 }
 
 type AppoinmentBookingInput struct {
-	DealershipID string
-	Services     []string
-	DesiredDate  time.Time
-	ServiceBayID string
-	TechnicianID string
-	ChosenSlot   ChosenSlot
-	VehicleID    string
-	Notes        string
-}
-
-type ChosenSlot struct {
-	Start time.Time
-	End   time.Time
+	CustomerID       string
+	DealershipID     string
+	Services         []string
+	DesiredStartTime time.Time
+	VehicleID        string
+	Notes            string
 }
 
 type AppoinmentBookingOutput struct {
-	AppointmentID string
-	Message       string
+	AppointmentID   string
+	DurationMinutes int
+	Message         string
 }
 
 func (uc *AppoinmentBookingUseCase) BookAppointment(ctx context.Context, req *AppoinmentBookingInput) (*AppoinmentBookingOutput, error) {
-	//TODO: Validate inputs
-	//TODO: Check if dealership is valid
+
+	//Check if dealership is valid
 	if req.DealershipID == "" {
 		return nil, ErrDealershipIDRequired
 	}
-	//TODO: Check if service type is valid (Assume all dealerships offer the same services for simplicity)
+	//Check if service type is valid (Assume all dealerships offer the same services for simplicity)
 	if len(req.Services) == 0 {
 		return nil, ErrServiceTypesRequired
 	}
-	if req.DesiredDate.Before(time.Now()) {
-		return nil, ErrDesiredDateInPast
+
+	desiredStartTime := req.DesiredStartTime
+	var services []*domain.ServiceSnapshot
+	var totalDuration time.Duration
+	for _, s := range req.Services {
+		service, ok, err := uc.serviceCache.GetService(ctx, s)
+		//If cache miss or error, get from DB and populate cache. If DB error, return error
+		if !ok || err != nil {
+			//Cache miss, get from DB and populate cache
+			def, err := uc.serviceDefinitionRepo.GetServiceDefinition(ctx, s)
+			if err != nil {
+				return nil, errors.New("service " + s + " not found")
+			}
+			service = &domain.Service{
+				ID:               def.ID,
+				Name:             def.Name,
+				EstimatedMinutes: def.EstimatedMinutes,
+				Price:            def.Price,
+			}
+			uc.serviceCache.SetService(ctx, s, service, serviceCacheTTL)
+		}
+		services = append(services, &domain.ServiceSnapshot{
+			ServiceID:        service.ID,
+			Name:             service.Name,
+			EstimatedMinutes: service.EstimatedMinutes,
+			Price:            service.Price,
+		})
+		totalDuration += time.Duration(service.EstimatedMinutes) * time.Minute
 	}
 
-	//TODO: Check if vehicle is valid and belongs to the custmer
-	_, err := uc.vehicleRepo.GetVehicle(ctx, req.VehicleID)
+	//Check if desired date is in the past
+	if req.DesiredStartTime.Before(time.Now()) {
+		return nil, ErrDesiredDateInPast
+	}
+	//Check if chosen service's duration matches dealership working hours and desired date
+	dealership, err := uc.dealershipRepo.GetDealership(ctx, req.DealershipID)
+	if err != nil {
+		return nil, ErrDealershipNotFound
+	}
+	if !dealership.IsSlotWithinHours(req.DesiredStartTime, req.DesiredStartTime.Add(totalDuration)) {
+		return nil, errors.New("chosen slot is outside dealership working hours")
+	}
+
+	//Check if vehicle is valid
+	_, err = uc.vehicleRepo.GetVehicle(ctx, req.VehicleID)
 	if err != nil {
 		return nil, ErrVehicleNotFound
 	}
 
-	//TODO: Create appointment
+	//Create appointment
 	//Start with pending status, then after all checks are done, update to confirmed
 	appt, err := uc.appointmentRepo.CreateAppointment(ctx, &domain.Appointment{
-		CustomerID:   "", //TODO: Get from auth context
+		CustomerID:   req.CustomerID,
 		VehicleID:    req.VehicleID,
 		DealershipID: req.DealershipID,
-		ServiceBayID: req.ServiceBayID,
-		TechnicianID: req.TechnicianID,
 		Status:       domain.AppointmentStatusPending,
-		StartTime:    req.ChosenSlot.Start,
-		EndTime:      req.ChosenSlot.End,
+		EndTime:      desiredStartTime.Add(totalDuration),
+		StartTime:    req.DesiredStartTime,
+		Services:     services,
 		Notes:        req.Notes,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return &AppoinmentBookingOutput{AppointmentID: appt.ID, Message: "Appointment booked successfully"}, nil
+	return &AppoinmentBookingOutput{
+		AppointmentID:   appt.ID,
+		DurationMinutes: int(appt.Duration().Minutes()),
+		Message:         "Appointment booked successfully",
+	}, nil
 }
 
 type AvailableSlotsInput struct {
@@ -145,6 +181,7 @@ func (uc *AppoinmentBookingUseCase) AvailableSlots(ctx context.Context, req *Ava
 	if req.DesiredDate.Before(time.Now()) {
 		return nil, ErrDesiredDateInPast
 	}
+
 	dealership, err := uc.dealershipRepo.GetDealership(ctx, req.DealershipID)
 	if err != nil {
 		return nil, ErrDealershipNotFound

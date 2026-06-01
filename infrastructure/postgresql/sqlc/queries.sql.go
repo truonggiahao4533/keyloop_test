@@ -20,17 +20,8 @@ const createAppointment = `-- name: CreateAppointment :one
 WITH slot_range AS (
   SELECT tstzrange(
     $4::TIMESTAMPTZ,
-    $4::TIMESTAMPTZ + $5::INTERVAL
+    $5::TIMESTAMPTZ
   ) AS range
-),
-qualified_technicians AS (
-  SELECT t.id
-  FROM technicians t
-  INNER JOIN technician_skills ts ON ts.technician_id = t.id
-  WHERE t.dealership_id = $1
-    AND ts.skill = ANY($9::text  [])
-  GROUP BY t.id
-  HAVING COUNT(DISTINCT ts.skill) = cardinality($9::text[])
 ),
 available_bay AS (
   SELECT b.id
@@ -38,28 +29,37 @@ available_bay AS (
   WHERE b.dealership_id = $1
     AND NOT EXISTS (
       SELECT 1 FROM appointments a
-      WHERE a.bay_id = b.id
+      WHERE a.service_bay_id = b.id
         AND a.dealership_id = $1
-        AND a.status <> 'CANCELLED'
+        AND a.status <> 'cancelled'
         AND tstzrange(a.start_time, a.end_time) && sr.range
     )
   LIMIT 1
+  FOR UPDATE SKIP LOCKED
 ),
 available_technician AS (
-  SELECT qt.id
-  FROM qualified_technicians qt, slot_range sr
-  WHERE NOT EXISTS (
+  SELECT t.id
+  FROM technicians t, slot_range sr
+  WHERE t.dealership_id = $1
+    AND t.id IN (
+      SELECT technician_id FROM technician_skills
+      WHERE service_id::text = ANY($9::text[])
+      GROUP BY technician_id
+      HAVING COUNT(DISTINCT service_id) = cardinality($9::text[])
+    )
+    AND NOT EXISTS (
       SELECT 1 FROM appointments a
-      WHERE a.technician_id = qt.id
+      WHERE a.technician_id = t.id
         AND a.dealership_id = $1
-        AND a.status <> 'CANCELLED'
+        AND a.status <> 'cancelled'
         AND tstzrange(a.start_time, a.end_time) && sr.range
     )
   LIMIT 1
+  FOR UPDATE SKIP LOCKED
 )
 INSERT INTO appointments (
   dealership_id, customer_id, vehicle_id,
-  bay_id, technician_id,
+  service_bay_id, technician_id,
   start_time, end_time,
   status, notes, services
 )
@@ -70,7 +70,7 @@ SELECT
   availbay.id,
   availtech.id,
   $4::TIMESTAMPTZ,
-  $4::TIMESTAMPTZ + $5::INTERVAL,
+  $5::TIMESTAMPTZ,
   $6::appointment_status,
   $7,
   $8::JSONB
@@ -84,7 +84,7 @@ type CreateAppointmentParams struct {
 	CustomerID   uuid.UUID         `json:"customer_id"`
 	VehicleID    uuid.UUID         `json:"vehicle_id"`
 	StartTime    time.Time         `json:"start_time"`
-	Duration     int64             `json:"duration"`
+	EndTime      time.Time         `json:"end_time"`
 	Status       AppointmentStatus `json:"status"`
 	Notes        sql.NullString    `json:"notes"`
 	Services     json.RawMessage   `json:"services"`
@@ -99,7 +99,7 @@ func (q *Queries) CreateAppointment(ctx context.Context, arg CreateAppointmentPa
 		arg.CustomerID,
 		arg.VehicleID,
 		arg.StartTime,
-		arg.Duration,
+		arg.EndTime,
 		arg.Status,
 		arg.Notes,
 		arg.Services,
@@ -523,9 +523,9 @@ WHERE
     AND t.id IN (
       -- tech must have ALL required skills
       SELECT technician_id FROM technician_skills
-      WHERE skill = ANY($5::text[])
+      WHERE service_id::text = ANY($5::text[])
       GROUP BY technician_id
-      HAVING COUNT(DISTINCT skill) = cardinality($5::text[])
+      HAVING COUNT(DISTINCT service_id) = cardinality($5::text[])
     )
     AND t.id NOT IN (
       SELECT technician_id FROM appointments

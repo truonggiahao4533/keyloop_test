@@ -25,9 +25,9 @@ WHERE
     AND t.id IN (
       -- tech must have ALL required skills
       SELECT technician_id FROM technician_skills
-      WHERE skill = ANY(sqlc.arg(service_types)::text[])
+      WHERE service_id::text = ANY(sqlc.arg(service_types)::text[])
       GROUP BY technician_id
-      HAVING COUNT(DISTINCT skill) = cardinality(sqlc.arg(service_types)::text[])
+      HAVING COUNT(DISTINCT service_id) = cardinality(sqlc.arg(service_types)::text[])
     )
     AND t.id NOT IN (
       SELECT technician_id FROM appointments
@@ -274,17 +274,8 @@ RETURNING *;
 WITH slot_range AS (
   SELECT tstzrange(
     sqlc.arg(start_time)::TIMESTAMPTZ,
-    sqlc.arg(start_time)::TIMESTAMPTZ + sqlc.arg(duration)::INTERVAL
+    sqlc.arg(end_time)::TIMESTAMPTZ
   ) AS range
-),
-qualified_technicians AS (
-  SELECT t.id
-  FROM technicians t
-  INNER JOIN technician_skills ts ON ts.technician_id = t.id
-  WHERE t.dealership_id = sqlc.arg(dealership_id)
-    AND ts.skill = ANY(sqlc.arg(service_ids)::text  [])
-  GROUP BY t.id
-  HAVING COUNT(DISTINCT ts.skill) = cardinality(sqlc.arg(service_ids)::text[])
 ),
 available_bay AS (
   SELECT b.id
@@ -292,28 +283,37 @@ available_bay AS (
   WHERE b.dealership_id = sqlc.arg(dealership_id)
     AND NOT EXISTS (
       SELECT 1 FROM appointments a
-      WHERE a.bay_id = b.id
+      WHERE a.service_bay_id = b.id
         AND a.dealership_id = sqlc.arg(dealership_id)
-        AND a.status <> 'CANCELLED'
+        AND a.status <> 'cancelled'
         AND tstzrange(a.start_time, a.end_time) && sr.range
     )
   LIMIT 1
+  FOR UPDATE SKIP LOCKED
 ),
 available_technician AS (
-  SELECT qt.id
-  FROM qualified_technicians qt, slot_range sr
-  WHERE NOT EXISTS (
+  SELECT t.id
+  FROM technicians t, slot_range sr
+  WHERE t.dealership_id = sqlc.arg(dealership_id)
+    AND t.id IN (
+      SELECT technician_id FROM technician_skills
+      WHERE service_id::text = ANY(sqlc.arg(service_ids)::text[])
+      GROUP BY technician_id
+      HAVING COUNT(DISTINCT service_id) = cardinality(sqlc.arg(service_ids)::text[])
+    )
+    AND NOT EXISTS (
       SELECT 1 FROM appointments a
-      WHERE a.technician_id = qt.id
+      WHERE a.technician_id = t.id
         AND a.dealership_id = sqlc.arg(dealership_id)
-        AND a.status <> 'CANCELLED'
+        AND a.status <> 'cancelled'
         AND tstzrange(a.start_time, a.end_time) && sr.range
     )
   LIMIT 1
+  FOR UPDATE SKIP LOCKED
 )
 INSERT INTO appointments (
   dealership_id, customer_id, vehicle_id,
-  bay_id, technician_id,
+  service_bay_id, technician_id,
   start_time, end_time,
   status, notes, services
 )
@@ -324,7 +324,7 @@ SELECT
   availbay.id,
   availtech.id,
   sqlc.arg(start_time)::TIMESTAMPTZ,
-  sqlc.arg(start_time)::TIMESTAMPTZ + sqlc.arg(duration)::INTERVAL,
+  sqlc.arg(end_time)::TIMESTAMPTZ,
   sqlc.arg(status)::appointment_status,
   sqlc.arg(notes),
   sqlc.arg(services)::JSONB

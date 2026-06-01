@@ -23,7 +23,7 @@ type Appointment struct {
 	DealershipID string
 	ServiceBayID string
 	TechnicianID string
-	Services     []ServiceSnapshot
+	Services     []*ServiceSnapshot
 	Status       AppointmentStatus
 	StartTime    time.Time
 	EndTime      time.Time

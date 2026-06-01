@@ -2,7 +2,7 @@
 
 package docs
 
-import "github.com/swaggo/swag/v2"
+import "github.com/swaggo/swag"
 
 const docTemplate = `{
     "schemes": {{ marshal .Schemes }},
@@ -36,7 +36,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/main.bookAppointmentRequest"
+                            "$ref": "#/definitions/httpHandler.bookAppointmentRequest"
                         }
                     }
                 ],
@@ -44,31 +44,31 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/main.bookAppointmentResponse"
+                            "$ref": "#/definitions/httpHandler.bookAppointmentResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.errorResponse"
+                            "$ref": "#/definitions/httpHandler.errorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/main.errorResponse"
+                            "$ref": "#/definitions/httpHandler.errorResponse"
                         }
                     },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
-                            "$ref": "#/definitions/main.errorResponse"
+                            "$ref": "#/definitions/httpHandler.errorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.errorResponse"
+                            "$ref": "#/definitions/httpHandler.errorResponse"
                         }
                     }
                 }
@@ -133,31 +133,31 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.availableSlotsResponse"
+                            "$ref": "#/definitions/httpHandler.availableSlotsResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.errorResponse"
+                            "$ref": "#/definitions/httpHandler.errorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/main.errorResponse"
+                            "$ref": "#/definitions/httpHandler.errorResponse"
                         }
                     },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
-                            "$ref": "#/definitions/main.errorResponse"
+                            "$ref": "#/definitions/httpHandler.errorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.errorResponse"
+                            "$ref": "#/definitions/httpHandler.errorResponse"
                         }
                     }
                 }
@@ -165,38 +165,33 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "main.availableSlotsResponse": {
+        "httpHandler.availableSlotsResponse": {
             "type": "object",
             "properties": {
                 "available_slots": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/main.slotJSON"
+                        "$ref": "#/definitions/httpHandler.slotJSON"
                     }
                 }
             }
         },
-        "main.bookAppointmentRequest": {
+        "httpHandler.bookAppointmentRequest": {
             "type": "object",
             "required": [
-                "chosen_slot",
                 "dealership_id",
-                "service_bay_id",
+                "desired_start_time",
                 "services",
-                "technician_id",
                 "vehicle_id"
             ],
             "properties": {
-                "chosen_slot": {
-                    "$ref": "#/definitions/main.chosenSlotJSON"
-                },
                 "dealership_id": {
                     "type": "string",
                     "example": "d1e2f3a4-b5c6-7890-abcd-ef1234567890"
                 },
-                "service_bay_id": {
+                "desired_start_time": {
                     "type": "string",
-                    "example": "b1c2d3e4-f5a6-7890-abcd-ef1234567890"
+                    "example": "2025-01-15T09:00:00Z"
                 },
                 "services": {
                     "type": "array",
@@ -209,47 +204,30 @@ const docTemplate = `{
                         "tire_rotation"
                     ]
                 },
-                "technician_id": {
-                    "type": "string",
-                    "example": "c1d2e3f4-a5b6-7890-abcd-ef1234567890"
-                },
                 "vehicle_id": {
                     "type": "string",
                     "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
                 }
             }
         },
-        "main.bookAppointmentResponse": {
+        "httpHandler.bookAppointmentResponse": {
             "type": "object",
             "properties": {
                 "appointment_id": {
                     "type": "string",
                     "example": "f1a2b3c4-d5e6-7890-abcd-ef1234567890"
                 },
+                "duration_minutes": {
+                    "type": "integer",
+                    "example": 75
+                },
                 "message": {
                     "type": "string",
-                    "example": "appointment booked"
+                    "example": "Appointment booked successfully"
                 }
             }
         },
-        "main.chosenSlotJSON": {
-            "type": "object",
-            "required": [
-                "end",
-                "start"
-            ],
-            "properties": {
-                "end": {
-                    "type": "string",
-                    "example": "2025-01-15T10:00:00Z"
-                },
-                "start": {
-                    "type": "string",
-                    "example": "2025-01-15T09:00:00Z"
-                }
-            }
-        },
-        "main.errorResponse": {
+        "httpHandler.errorResponse": {
             "type": "object",
             "properties": {
                 "error": {
@@ -258,7 +236,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.slotJSON": {
+        "httpHandler.slotJSON": {
             "type": "object",
             "properties": {
                 "end": {
@@ -277,15 +255,13 @@ const docTemplate = `{
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
 	Version:          "1.0",
-	Host:             "localhost:8080",
+	Host:             "localhost:8081",
 	BasePath:         "/",
 	Schemes:          []string{},
 	Title:            "Keyloop Appointment Booking API",
 	Description:      "RESTful API for booking vehicle service appointments at dealerships.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
-	LeftDelim:        "{{",
-	RightDelim:       "}}",
 }
 
 func init() {

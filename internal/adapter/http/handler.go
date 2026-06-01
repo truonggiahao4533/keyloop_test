@@ -33,23 +33,17 @@ func (h *AppointmentHandler) RegisterRoutes(r *gin.Engine) {
 
 // Request / response types
 
-type chosenSlotJSON struct {
-	Start string `json:"start" binding:"required" example:"2025-01-15T09:00:00Z"`
-	End   string `json:"end"   binding:"required" example:"2025-01-15T10:00:00Z"`
-}
-
 type bookAppointmentRequest struct {
-	DealershipID string         `json:"dealership_id"  binding:"required" example:"d1e2f3a4-b5c6-7890-abcd-ef1234567890"`
-	VehicleID    string         `json:"vehicle_id"     binding:"required" example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`
-	Services     []string       `json:"services"       binding:"required,min=1" example:"oil_change,tire_rotation"`
-	ServiceBayID string         `json:"service_bay_id" binding:"required" example:"b1c2d3e4-f5a6-7890-abcd-ef1234567890"`
-	TechnicianID string         `json:"technician_id"  binding:"required" example:"c1d2e3f4-a5b6-7890-abcd-ef1234567890"`
-	ChosenSlot   chosenSlotJSON `json:"chosen_slot"    binding:"required"`
+	DealershipID     string    `json:"dealership_id"  binding:"required" example:"d1e2f3a4-b5c6-7890-abcd-ef1234567890"`
+	VehicleID        string    `json:"vehicle_id"     binding:"required" example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`
+	Services         []string  `json:"services"       binding:"required,min=1" example:"oil_change,tire_rotation"`
+	DesiredStartTime time.Time `json:"desired_start_time" binding:"required" example:"2025-01-15T09:00:00Z"`
 }
 
 type bookAppointmentResponse struct {
-	AppointmentID string `json:"appointment_id" example:"f1a2b3c4-d5e6-7890-abcd-ef1234567890"`
-	Message       string `json:"message"        example:"appointment booked"`
+	AppointmentID   string `json:"appointment_id"   example:"f1a2b3c4-d5e6-7890-abcd-ef1234567890"`
+	DurationMinutes int    `json:"duration_minutes" example:"75"`
+	Message         string `json:"message"          example:"Appointment booked successfully"`
 }
 
 type slotJSON struct {
@@ -85,33 +79,25 @@ func (h *AppointmentHandler) BookAppointment(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
-	slotStart, err := time.Parse(time.RFC3339, req.ChosenSlot.Start)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "chosen_slot.start must be RFC3339 format"})
-		return
-	}
-	slotEnd, err := time.Parse(time.RFC3339, req.ChosenSlot.End)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "chosen_slot.end must be RFC3339 format"})
-		return
-	}
+	mockCustomerID := "c1a2b3c4-d5e6-7890-abcd-ef1234567890" //TODO: Get from auth context
 
 	out, err := h.uc.BookAppointment(c.Request.Context(), &usecase.AppoinmentBookingInput{
-		DealershipID: req.DealershipID,
-		VehicleID:    req.VehicleID,
-		Services:     req.Services,
-		ServiceBayID: req.ServiceBayID,
-		TechnicianID: req.TechnicianID,
-		DesiredDate:  slotStart,
-		ChosenSlot:   usecase.ChosenSlot{Start: slotStart, End: slotEnd},
+		DealershipID:     req.DealershipID,
+		VehicleID:        req.VehicleID,
+		Services:         req.Services,
+		DesiredStartTime: req.DesiredStartTime,
+		CustomerID:       mockCustomerID,
 	})
 	if err != nil {
 		c.JSON(appointmentErrorStatus(err), gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"appointment_id": out.AppointmentID, "message": out.Message})
+	c.JSON(http.StatusCreated, bookAppointmentResponse{
+		AppointmentID:   out.AppointmentID,
+		DurationMinutes: out.DurationMinutes,
+		Message:         out.Message,
+	})
 }
 
 // GetAvailableSlots godoc
