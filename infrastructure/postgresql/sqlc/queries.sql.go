@@ -393,7 +393,11 @@ func (q *Queries) CreateVehicle(ctx context.Context, arg CreateVehicleParams) (V
 }
 
 const deleteAppointment = `-- name: DeleteAppointment :exec
-DELETE FROM appointments WHERE id = $1
+UPDATE appointments
+SET deleted_at = NOW(),
+    status     = 'cancelled',
+    updated_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL
 `
 
 func (q *Queries) DeleteAppointment(ctx context.Context, id uuid.UUID) error {
@@ -470,8 +474,7 @@ func (q *Queries) DeleteVehicle(ctx context.Context, id uuid.UUID) error {
 }
 
 const getAppointment = `-- name: GetAppointment :one
-
-SELECT id, customer_id, vehicle_id, dealership_id, service_bay_id, technician_id, services, status, start_time, end_time, notes, deleted_at, created_at, updated_at FROM appointments WHERE id = $1
+SELECT id, customer_id, vehicle_id, dealership_id, service_bay_id, technician_id, services, status, start_time, end_time, notes, deleted_at, created_at, updated_at FROM appointments WHERE id = $1 AND deleted_at IS NULL
 `
 
 // =========================================================================
@@ -730,7 +733,7 @@ func (q *Queries) GetVehicle(ctx context.Context, id uuid.UUID) (Vehicle, error)
 }
 
 const listAppointmentsByCustomer = `-- name: ListAppointmentsByCustomer :many
-SELECT id, customer_id, vehicle_id, dealership_id, service_bay_id, technician_id, services, status, start_time, end_time, notes, deleted_at, created_at, updated_at FROM appointments WHERE customer_id = $1 ORDER BY start_time DESC
+SELECT id, customer_id, vehicle_id, dealership_id, service_bay_id, technician_id, services, status, start_time, end_time, notes, deleted_at, created_at, updated_at FROM appointments WHERE customer_id = $1 AND deleted_at IS NULL ORDER BY start_time DESC
 `
 
 func (q *Queries) ListAppointmentsByCustomer(ctx context.Context, customerID uuid.UUID) ([]Appointment, error) {
@@ -772,7 +775,7 @@ func (q *Queries) ListAppointmentsByCustomer(ctx context.Context, customerID uui
 }
 
 const listAppointmentsByCustomerAndDealership = `-- name: ListAppointmentsByCustomerAndDealership :many
-SELECT id, customer_id, vehicle_id, dealership_id, service_bay_id, technician_id, services, status, start_time, end_time, notes, deleted_at, created_at, updated_at FROM appointments WHERE customer_id = $1 AND dealership_id = $2 ORDER BY start_time DESC
+SELECT id, customer_id, vehicle_id, dealership_id, service_bay_id, technician_id, services, status, start_time, end_time, notes, deleted_at, created_at, updated_at FROM appointments WHERE customer_id = $1 AND dealership_id = $2 AND deleted_at IS NULL ORDER BY start_time DESC
 `
 
 type ListAppointmentsByCustomerAndDealershipParams struct {
@@ -819,7 +822,7 @@ func (q *Queries) ListAppointmentsByCustomerAndDealership(ctx context.Context, a
 }
 
 const listAppointmentsByDealership = `-- name: ListAppointmentsByDealership :many
-SELECT id, customer_id, vehicle_id, dealership_id, service_bay_id, technician_id, services, status, start_time, end_time, notes, deleted_at, created_at, updated_at FROM appointments WHERE dealership_id = $1 ORDER BY start_time DESC
+SELECT id, customer_id, vehicle_id, dealership_id, service_bay_id, technician_id, services, status, start_time, end_time, notes, deleted_at, created_at, updated_at FROM appointments WHERE dealership_id = $1 AND deleted_at IS NULL ORDER BY start_time DESC
 `
 
 func (q *Queries) ListAppointmentsByDealership(ctx context.Context, dealershipID uuid.UUID) ([]Appointment, error) {
@@ -1129,6 +1132,43 @@ type UpdateAppointmentStatusParams struct {
 
 func (q *Queries) UpdateAppointmentStatus(ctx context.Context, arg UpdateAppointmentStatusParams) (Appointment, error) {
 	row := q.db.QueryRowContext(ctx, updateAppointmentStatus, arg.ID, arg.Status)
+	var i Appointment
+	err := row.Scan(
+		&i.ID,
+		&i.CustomerID,
+		&i.VehicleID,
+		&i.DealershipID,
+		&i.ServiceBayID,
+		&i.TechnicianID,
+		&i.Services,
+		&i.Status,
+		&i.StartTime,
+		&i.EndTime,
+		&i.Notes,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateAppointment = `-- name: UpdateAppointment :one
+UPDATE appointments
+SET status = $2,
+    notes  = $3,
+    updated_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, customer_id, vehicle_id, dealership_id, service_bay_id, technician_id, services, status, start_time, end_time, notes, deleted_at, created_at, updated_at
+`
+
+type UpdateAppointmentParams struct {
+	ID     uuid.UUID         `json:"id"`
+	Status AppointmentStatus `json:"status"`
+	Notes  sql.NullString    `json:"notes"`
+}
+
+func (q *Queries) UpdateAppointment(ctx context.Context, arg UpdateAppointmentParams) (Appointment, error) {
+	row := q.db.QueryRowContext(ctx, updateAppointment, arg.ID, arg.Status, arg.Notes)
 	var i Appointment
 	err := row.Scan(
 		&i.ID,

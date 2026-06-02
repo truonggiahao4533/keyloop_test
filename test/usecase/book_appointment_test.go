@@ -143,6 +143,9 @@ func (s *stubAppointmentRepo) ListAppointmentsByCustomerAndDealership(_ context.
 func (s *stubAppointmentRepo) UpdateAppointmentStatus(_ context.Context, _ *domain.Appointment, _ domain.AppointmentStatus) error {
 	return nil
 }
+func (s *stubAppointmentRepo) UpdateAppointment(_ context.Context, _ string, _ domain.AppointmentStatus, _ string) (*domain.Appointment, error) {
+	return nil, nil
+}
 func (s *stubAppointmentRepo) DeleteAppointment(_ context.Context, _ string) error { return nil }
 
 // ─────────────────────────────────────────────────────────────────────────────

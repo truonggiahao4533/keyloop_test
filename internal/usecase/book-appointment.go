@@ -19,12 +19,28 @@ const serviceCacheTTL = 5 * time.Minute
 var (
 	ErrDealershipNotFound        = errors.New("dealership not found")
 	ErrVehicleNotFound           = errors.New("vehicle not found")
+	ErrAppointmentNotFound       = errors.New("appointment not found")
 	ErrVehicleNotOwnedByCustomer = errors.New("vehicle is not owned by the specified customer")
 	ErrDesiredDateInPast         = errors.New("desired date must be in the future")
 	ErrStartTimeInPast           = errors.New("appointment start time must be in the future")
 	ErrSlotOutsideWorkingHours   = errors.New("chosen slot is outside dealership working hours")
 	ErrSlotNotOnWorkingDay       = errors.New("chosen date is not a working day for this dealership")
+	ErrInvalidStatusTransition   = errors.New("invalid status transition")
+	ErrCannotDeleteAppointment   = errors.New("appointment cannot be deleted in its current status")
 )
+
+// validTransitions defines the allowed status transitions for an appointment.
+var validTransitions = map[domain.AppointmentStatus]map[domain.AppointmentStatus]struct{}{
+	domain.AppointmentStatusPending: {
+		domain.AppointmentStatusConfirmed: {},
+		domain.AppointmentStatusCancelled: {},
+	},
+	domain.AppointmentStatusConfirmed: {
+		domain.AppointmentStatusCancelled: {},
+		domain.AppointmentStatusCompleted: {},
+		domain.AppointmentStatusNoShow:    {},
+	},
+}
 
 type AppoinmentBookingUseCase struct {
 	dealershipRepo       repository.DealershipRepository
@@ -383,4 +399,111 @@ func (uc *AppoinmentBookingUseCase) ListAppointments(ctx context.Context, req *L
 		}
 	}
 	return &ListAppointmentsOutput{Appointments: items}, nil
+}
+
+func (uc *AppoinmentBookingUseCase) SoftDeleteAppointment(ctx context.Context, id string) (err error) {
+	ctx, span := uc.tracer.Start(ctx, "SoftDeleteAppointment",
+		trace.WithAttributes(attribute.String("appointment.id", id)),
+	)
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
+
+	rCtx, rSpan := uc.tracer.Start(ctx, "repo.GetAppointment")
+	appt, repoErr := uc.appointmentRepo.GetAppointment(rCtx, id)
+	if repoErr != nil {
+		rSpan.RecordError(repoErr)
+		rSpan.SetStatus(codes.Error, repoErr.Error())
+	}
+	rSpan.End()
+	if repoErr != nil {
+		return ErrAppointmentNotFound
+	}
+	if !appt.CanCancel() {
+		return ErrCannotDeleteAppointment
+	}
+
+	rCtx, rSpan = uc.tracer.Start(ctx, "repo.DeleteAppointment")
+	err = uc.appointmentRepo.DeleteAppointment(rCtx, id)
+	if err != nil {
+		rSpan.RecordError(err)
+		rSpan.SetStatus(codes.Error, err.Error())
+	}
+	rSpan.End()
+	return err
+}
+
+type UpdateAppointmentInput struct {
+	AppointmentID string
+	Status        *domain.AppointmentStatus
+	Notes         *string
+}
+
+func (uc *AppoinmentBookingUseCase) UpdateAppointment(ctx context.Context, req *UpdateAppointmentInput) (_ *AppointmentItem, err error) {
+	ctx, span := uc.tracer.Start(ctx, "UpdateAppointment",
+		trace.WithAttributes(attribute.String("appointment.id", req.AppointmentID)),
+	)
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
+
+	rCtx, rSpan := uc.tracer.Start(ctx, "repo.GetAppointment")
+	current, repoErr := uc.appointmentRepo.GetAppointment(rCtx, req.AppointmentID)
+	if repoErr != nil {
+		rSpan.RecordError(repoErr)
+		rSpan.SetStatus(codes.Error, repoErr.Error())
+	}
+	rSpan.End()
+	if repoErr != nil {
+		return nil, ErrAppointmentNotFound
+	}
+
+	newStatus := current.Status
+	if req.Status != nil && *req.Status != current.Status {
+		allowed, ok := validTransitions[current.Status]
+		if !ok {
+			return nil, ErrInvalidStatusTransition
+		}
+		if _, ok := allowed[*req.Status]; !ok {
+			return nil, ErrInvalidStatusTransition
+		}
+		newStatus = *req.Status
+	}
+
+	newNotes := current.Notes
+	if req.Notes != nil {
+		newNotes = *req.Notes
+	}
+
+	rCtx, rSpan = uc.tracer.Start(ctx, "repo.UpdateAppointment")
+	updated, err := uc.appointmentRepo.UpdateAppointment(rCtx, req.AppointmentID, newStatus, newNotes)
+	if err != nil {
+		rSpan.RecordError(err)
+		rSpan.SetStatus(codes.Error, err.Error())
+	}
+	rSpan.End()
+	if err != nil {
+		return nil, err
+	}
+
+	return &AppointmentItem{
+		ID:           updated.ID,
+		CustomerID:   updated.CustomerID,
+		VehicleID:    updated.VehicleID,
+		DealershipID: updated.DealershipID,
+		Services:     updated.Services,
+		Status:       string(updated.Status),
+		StartTime:    updated.StartTime,
+		EndTime:      updated.EndTime,
+		Notes:        updated.Notes,
+		CreatedAt:    updated.CreatedAt,
+	}, nil
 }

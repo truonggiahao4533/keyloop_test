@@ -297,17 +297,128 @@ func (h *AppointmentHandler) ListAppointments(c *gin.Context) {
 	c.JSON(http.StatusOK, listAppointmentsResponse{Appointments: items})
 }
 
+// DeleteAppointment godoc
+//
+// @Summary      Soft-delete an appointment
+// @Description  Cancels and archives an appointment; only pending or confirmed appointments can be deleted
+// @Tags         appointments
+// @Produce      json
+// @Param        id   path      string  true  "Appointment UUID"
+// @Success      204
+// @Failure      400  {object}  errorResponse
+// @Failure      404  {object}  errorResponse
+// @Failure      422  {object}  errorResponse
+// @Failure      500  {object}  errorResponse
+// @Router       /api/v1/appointments/{id} [delete]
+func (h *AppointmentHandler) DeleteAppointment(c *gin.Context) {
+	id, ok := requireUUID(c, "id", c.Param("id"))
+	if !ok {
+		return
+	}
+	if err := h.uc.SoftDeleteAppointment(c.Request.Context(), id); err != nil {
+		c.JSON(appointmentErrorStatus(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+type updateAppointmentRequest struct {
+	Status *string `json:"status"`
+	Notes  *string `json:"notes"`
+}
+
+// UpdateAppointment godoc
+//
+// @Summary      Update an appointment
+// @Description  Update the status and/or notes of an existing appointment; at least one field is required
+// @Tags         appointments
+// @Accept       json
+// @Produce      json
+// @Param        id    path      string                   true  "Appointment UUID"
+// @Param        body  body      updateAppointmentRequest true  "Fields to update"
+// @Success      200   {object}  appointmentJSON
+// @Failure      400   {object}  errorResponse
+// @Failure      404   {object}  errorResponse
+// @Failure      422   {object}  errorResponse
+// @Failure      500   {object}  errorResponse
+// @Router       /api/v1/appointments/{id} [patch]
+func (h *AppointmentHandler) UpdateAppointment(c *gin.Context) {
+	id, ok := requireUUID(c, "id", c.Param("id"))
+	if !ok {
+		return
+	}
+	var req updateAppointmentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Status == nil && req.Notes == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "at least one of status or notes must be provided"})
+		return
+	}
+
+	var statusPtr *domain.AppointmentStatus
+	if req.Status != nil {
+		s := domain.AppointmentStatus(strings.TrimSpace(*req.Status))
+		if s == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "status must not be blank"})
+			return
+		}
+		statusPtr = &s
+	}
+	var notesPtr *string
+	if req.Notes != nil {
+		trimmed := strings.TrimSpace(*req.Notes)
+		notesPtr = &trimmed
+	}
+
+	out, err := h.uc.UpdateAppointment(c.Request.Context(), &usecase.UpdateAppointmentInput{
+		AppointmentID: id,
+		Status:        statusPtr,
+		Notes:         notesPtr,
+	})
+	if err != nil {
+		c.JSON(appointmentErrorStatus(err), gin.H{"error": err.Error()})
+		return
+	}
+
+	snapshots := make([]serviceSnapshotJSON, len(out.Services))
+	for j, s := range out.Services {
+		snapshots[j] = serviceSnapshotJSON{
+			ServiceID:        s.ServiceID,
+			Name:             s.Name,
+			EstimatedMinutes: s.EstimatedMinutes,
+			Price:            s.Price,
+		}
+	}
+	c.JSON(http.StatusOK, appointmentJSON{
+		ID:           out.ID,
+		CustomerID:   out.CustomerID,
+		VehicleID:    out.VehicleID,
+		DealershipID: out.DealershipID,
+		Services:     snapshots,
+		Status:       out.Status,
+		StartTime:    out.StartTime.Format(time.RFC3339),
+		EndTime:      out.EndTime.Format(time.RFC3339),
+		Notes:        out.Notes,
+		CreatedAt:    out.CreatedAt.Format(time.RFC3339),
+	})
+}
+
 func appointmentErrorStatus(err error) int {
 	switch {
 	case errors.Is(err, usecase.ErrDealershipNotFound),
-		errors.Is(err, usecase.ErrVehicleNotFound):
+		errors.Is(err, usecase.ErrVehicleNotFound),
+		errors.Is(err, usecase.ErrAppointmentNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, domain.ErrTimeSlotConflict):
 		return http.StatusConflict
 	case errors.Is(err, usecase.ErrDesiredDateInPast),
 		errors.Is(err, usecase.ErrStartTimeInPast),
 		errors.Is(err, usecase.ErrSlotOutsideWorkingHours),
-		errors.Is(err, usecase.ErrSlotNotOnWorkingDay):
+		errors.Is(err, usecase.ErrSlotNotOnWorkingDay),
+		errors.Is(err, usecase.ErrInvalidStatusTransition),
+		errors.Is(err, usecase.ErrCannotDeleteAppointment):
 		return http.StatusUnprocessableEntity
 	default:
 		return http.StatusInternalServerError

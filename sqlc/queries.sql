@@ -253,22 +253,30 @@ INSERT INTO technician_skills (
 -- =========================================================================
 
 -- name: GetAppointment :one
-SELECT * FROM appointments WHERE id = $1;
+SELECT * FROM appointments WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: ListAppointmentsByDealership :many
-SELECT * FROM appointments WHERE dealership_id = $1 ORDER BY start_time DESC;
+SELECT * FROM appointments WHERE dealership_id = $1 AND deleted_at IS NULL ORDER BY start_time DESC;
 
 -- name: ListAppointmentsByCustomer :many
-SELECT * FROM appointments WHERE customer_id = $1 ORDER BY start_time DESC;
+SELECT * FROM appointments WHERE customer_id = $1 AND deleted_at IS NULL ORDER BY start_time DESC;
 
 -- name: ListAppointmentsByCustomerAndDealership :many
-SELECT * FROM appointments WHERE customer_id = $1 AND dealership_id = $2 ORDER BY start_time DESC;
+SELECT * FROM appointments WHERE customer_id = $1 AND dealership_id = $2 AND deleted_at IS NULL ORDER BY start_time DESC;
 
 -- name: UpdateAppointmentStatus :one
 UPDATE appointments
 SET status = $2,
     updated_at = NOW()
-WHERE id = $1
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING *;
+
+-- name: UpdateAppointment :one
+UPDATE appointments
+SET status = $2,
+    notes  = $3,
+    updated_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL
 RETURNING *;
 
 -- Service_ids input to fetch technicians with all required skills and to check bay/tech availability
@@ -337,6 +345,10 @@ FROM available_bay availbay, available_technician availtech
 RETURNING *;
 
 -- name: DeleteAppointment :exec
-DELETE FROM appointments WHERE id = $1;
+UPDATE appointments
+SET deleted_at = NOW(),
+    status     = 'cancelled',
+    updated_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL;
 
 

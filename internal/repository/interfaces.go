@@ -68,6 +68,7 @@ type AppointmentRepository interface {
 	ListAppointmentsByCustomerAndDealership(ctx context.Context, customerID, dealershipID string) ([]domain.Appointment, error)
 	CreateAppointment(ctx context.Context, appt *domain.Appointment) (*domain.Appointment, error)
 	UpdateAppointmentStatus(ctx context.Context, appt *domain.Appointment, status domain.AppointmentStatus) error
+	UpdateAppointment(ctx context.Context, id string, status domain.AppointmentStatus, notes string) (*domain.Appointment, error)
 	DeleteAppointment(ctx context.Context, id string) error
 }
 

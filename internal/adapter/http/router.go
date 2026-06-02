@@ -31,5 +31,7 @@ func (r *Router) RegisterRoutes(g *gin.Engine) {
 		v1.POST("/appointments", r.appointmentHandler.BookAppointment)
 		v1.GET("/appointments", r.appointmentHandler.ListAppointments)
 		v1.GET("/appointments/available-slots", r.appointmentHandler.GetAvailableSlots)
+		v1.PATCH("/appointments/:id", r.appointmentHandler.UpdateAppointment)
+		v1.DELETE("/appointments/:id", r.appointmentHandler.DeleteAppointment)
 	}
 }

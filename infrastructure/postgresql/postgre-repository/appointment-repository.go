@@ -247,6 +247,41 @@ func (r *appointmentRepo) UpdateAppointmentStatus(ctx context.Context, appt *dom
 	return err
 }
 
+func (r *appointmentRepo) UpdateAppointment(ctx context.Context, id string, status domain.AppointmentStatus, notes string) (*domain.Appointment, error) {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return nil, err
+	}
+	a, err := r.q.UpdateAppointment(ctx, sqlc.UpdateAppointmentParams{
+		ID:     uid,
+		Status: sqlc.AppointmentStatus(status),
+		Notes:  sql.NullString{String: notes, Valid: notes != ""},
+	})
+	if err != nil {
+		return nil, err
+	}
+	var services []*domain.ServiceSnapshot
+	if err = json.Unmarshal(a.Services, &services); err != nil {
+		return nil, err
+	}
+	return &domain.Appointment{
+		ID:           a.ID.String(),
+		CustomerID:   a.CustomerID.String(),
+		VehicleID:    a.VehicleID.String(),
+		DealershipID: a.DealershipID.String(),
+		ServiceBayID: a.ServiceBayID.String(),
+		TechnicianID: a.TechnicianID.String(),
+		Services:     services,
+		Status:       domain.AppointmentStatus(a.Status),
+		StartTime:    a.StartTime,
+		EndTime:      a.EndTime,
+		Notes:        a.Notes.String,
+		DeletedAt:    a.DeletedAt.Time,
+		CreatedAt:    a.CreatedAt,
+		UpdatedAt:    a.UpdatedAt,
+	}, nil
+}
+
 func (r *appointmentRepo) DeleteAppointment(ctx context.Context, id string) error {
 	uid, err := uuid.Parse(id)
 	if err != nil {
