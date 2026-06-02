@@ -36,11 +36,24 @@ func SetupOTel(ctx context.Context) (shutdown func(context.Context) error, err e
 		propagation.Baggage{},
 	))
 
+	// Export traces to console for debugging
 	traceExporter, err := stdouttrace.New(stdouttrace.WithPrettyPrint())
 	if err != nil {
 		handleErr(err)
 		return
 	}
+
+	//Export traces to OTLP collector
+	//For production, spin up an OTLP collector (Jaeger, Tempo, etc.)
+	// traceExporter, err := otlptracegrpc.New(ctx,
+	// 	otlptracegrpc.WithEndpoint("localhost:4317"),
+	// 	otlptracegrpc.WithInsecure(),
+	// )
+	// if err != nil {
+	// 	handleErr(err)
+	// 	return
+	// }
+
 	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(traceExporter))
 	shutdownFuncs = append(shutdownFuncs, tracerProvider.Shutdown)
 	otel.SetTracerProvider(tracerProvider)

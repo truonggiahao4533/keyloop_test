@@ -243,7 +243,6 @@ Booking Service  ────→  appointments table (EXCLUDE gist lock) + inval
 |---|---|---|
 | Slot unit | 30 minutes | Industry standard, flexible for multi-slot services |
 | Availability method | Exclusion-based | Simpler, unlimited range, always accurate |
-| Pre-compute / sliding window | Not used | Unnecessary complexity for dealership-scale traffic |
 | Race condition handling | EXCLUDE gist on appointments | Overlap-safe, no extra table needed for direct booking |
 | Reservation table | Not used (future option) | Only needed if a payment/confirmation step is introduced |
 | Cache pattern | Cache-Aside | Safe, simple, invalidate on write |

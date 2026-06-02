@@ -111,7 +111,6 @@ func (uc *AppoinmentBookingUseCase) BookAppointment(ctx context.Context, req *Ap
 		span.End()
 	}()
 
-	//Validate input
 	if req.DealershipID == "" {
 		return nil, ErrDealershipIDRequired
 	}
@@ -122,14 +121,19 @@ func (uc *AppoinmentBookingUseCase) BookAppointment(ctx context.Context, req *Ap
 		return nil, ErrDesiredDateInPast
 	}
 
-	//Get services snapshots and total duration for all requested services
 	services, totalDuration, err := uc.resolveServices(ctx, req.Services)
 	if err != nil {
 		return nil, err
 	}
 
-	dealership, err := uc.dealershipRepo.GetDealership(ctx, req.DealershipID)
-	if err != nil {
+	rCtx, rSpan := uc.tracer.Start(ctx, "repo.GetDealership")
+	dealership, repoErr := uc.dealershipRepo.GetDealership(rCtx, req.DealershipID)
+	if repoErr != nil {
+		rSpan.RecordError(repoErr)
+		rSpan.SetStatus(codes.Error, repoErr.Error())
+	}
+	rSpan.End()
+	if repoErr != nil {
 		return nil, ErrDealershipNotFound
 	}
 	if !dealership.IsWorkingDay(req.DesiredStartTime) {
@@ -139,16 +143,22 @@ func (uc *AppoinmentBookingUseCase) BookAppointment(ctx context.Context, req *Ap
 		return nil, ErrSlotOutsideWorkingHours
 	}
 
-	//Check vehicle exists and belongs to customer
-	vehicle, err := uc.vehicleRepo.GetVehicle(ctx, req.VehicleID)
-	if err != nil {
+	rCtx, rSpan = uc.tracer.Start(ctx, "repo.GetVehicle")
+	vehicle, repoErr := uc.vehicleRepo.GetVehicle(rCtx, req.VehicleID)
+	if repoErr != nil {
+		rSpan.RecordError(repoErr)
+		rSpan.SetStatus(codes.Error, repoErr.Error())
+	}
+	rSpan.End()
+	if repoErr != nil {
 		return nil, ErrVehicleNotFound
 	}
 	if vehicle.CustomerID != req.CustomerID {
 		return nil, ErrVehicleNotOwnedByCustomer
 	}
 
-	appt, err := uc.appointmentRepo.CreateAppointment(ctx, &domain.Appointment{
+	rCtx, rSpan = uc.tracer.Start(ctx, "repo.CreateAppointment")
+	appt, err := uc.appointmentRepo.CreateAppointment(rCtx, &domain.Appointment{
 		CustomerID:   req.CustomerID,
 		VehicleID:    req.VehicleID,
 		DealershipID: req.DealershipID,
@@ -158,6 +168,11 @@ func (uc *AppoinmentBookingUseCase) BookAppointment(ctx context.Context, req *Ap
 		Services:     services,
 		Notes:        req.Notes,
 	})
+	if err != nil {
+		rSpan.RecordError(err)
+		rSpan.SetStatus(codes.Error, err.Error())
+	}
+	rSpan.End()
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +220,6 @@ func (uc *AppoinmentBookingUseCase) AvailableSlots(ctx context.Context, req *Ava
 		span.End()
 	}()
 
-	//Validate input
 	if req.DealershipID == "" {
 		return nil, ErrDealershipIDRequired
 	}
@@ -216,31 +230,46 @@ func (uc *AppoinmentBookingUseCase) AvailableSlots(ctx context.Context, req *Ava
 		return nil, ErrDesiredDateInPast
 	}
 
-	//Get total duration for all requested services
 	_, totalDuration, err := uc.resolveServices(ctx, req.Services)
 	if err != nil {
 		return nil, err
 	}
 
-	//Check dealership exists and is open on desired date
-	dealership, err := uc.dealershipRepo.GetDealership(ctx, req.DealershipID)
-	if err != nil {
+	rCtx, rSpan := uc.tracer.Start(ctx, "repo.GetDealership")
+	dealership, repoErr := uc.dealershipRepo.GetDealership(rCtx, req.DealershipID)
+	if repoErr != nil {
+		rSpan.RecordError(repoErr)
+		rSpan.SetStatus(codes.Error, repoErr.Error())
+	}
+	rSpan.End()
+	if repoErr != nil {
 		return nil, ErrDealershipNotFound
 	}
 	if !dealership.IsWorkingDay(req.DesiredDate) {
 		return nil, ErrSlotNotOnWorkingDay
 	}
 
-	//Check vehicle exists and belongs to customer
-	vehicle, err := uc.vehicleRepo.GetVehicle(ctx, req.VehicleID)
-	if err != nil {
+	rCtx, rSpan = uc.tracer.Start(ctx, "repo.GetVehicle")
+	vehicle, repoErr := uc.vehicleRepo.GetVehicle(rCtx, req.VehicleID)
+	if repoErr != nil {
+		rSpan.RecordError(repoErr)
+		rSpan.SetStatus(codes.Error, repoErr.Error())
+	}
+	rSpan.End()
+	if repoErr != nil {
 		return nil, ErrVehicleNotFound
 	}
 	if vehicle.CustomerID != req.CustomerID {
 		return nil, ErrVehicleNotOwnedByCustomer
 	}
 
-	rawSlots, err := uc.availabilitySlotRepo.GetAvailableSlots(ctx, req.DesiredDate, req.DesiredDate.Add(timeSlotLookupWindow), req.DealershipID, totalDuration, req.Services)
+	rCtx, rSpan = uc.tracer.Start(ctx, "repo.GetAvailableSlots")
+	rawSlots, err := uc.availabilitySlotRepo.GetAvailableSlots(rCtx, req.DesiredDate, req.DesiredDate.Add(timeSlotLookupWindow), req.DealershipID, totalDuration, req.Services)
+	if err != nil {
+		rSpan.RecordError(err)
+		rSpan.SetStatus(codes.Error, err.Error())
+	}
+	rSpan.End()
 	if err != nil {
 		return nil, err
 	}
@@ -263,10 +292,15 @@ func (uc *AppoinmentBookingUseCase) resolveServices(ctx context.Context, service
 	for _, id := range serviceIDs {
 		svc, ok, err := uc.serviceCache.GetService(ctx, id)
 		if !ok || err != nil {
-			svc, err = uc.serviceRepo.GetService(ctx, id)
+			rCtx, rSpan := uc.tracer.Start(ctx, "repo.GetService")
+			svc, err = uc.serviceRepo.GetService(rCtx, id)
 			if err != nil {
+				rSpan.RecordError(err)
+				rSpan.SetStatus(codes.Error, err.Error())
+				rSpan.End()
 				return nil, 0, fmt.Errorf("service %s not found", id)
 			}
+			rSpan.End()
 			uc.serviceCache.SetService(ctx, id, svc, serviceCacheTTL)
 		}
 		snapshots = append(snapshots, &domain.ServiceSnapshot{
@@ -320,17 +354,36 @@ func (uc *AppoinmentBookingUseCase) ListAppointments(ctx context.Context, req *L
 	var appts []domain.Appointment
 	switch {
 	case req.CustomerID != "" && req.DealershipID != "":
-		appts, err = uc.appointmentRepo.ListAppointmentsByCustomerAndDealership(ctx, req.CustomerID, req.DealershipID)
+		rCtx, rSpan := uc.tracer.Start(ctx, "repo.ListAppointmentsByCustomerAndDealership")
+		appts, err = uc.appointmentRepo.ListAppointmentsByCustomerAndDealership(rCtx, req.CustomerID, req.DealershipID)
+		if err != nil {
+			rSpan.RecordError(err)
+			rSpan.SetStatus(codes.Error, err.Error())
+		}
+		rSpan.End()
 	case req.CustomerID != "":
-		appts, err = uc.appointmentRepo.ListAppointmentsByCustomer(ctx, req.CustomerID)
+		rCtx, rSpan := uc.tracer.Start(ctx, "repo.ListAppointmentsByCustomer")
+		appts, err = uc.appointmentRepo.ListAppointmentsByCustomer(rCtx, req.CustomerID)
+		if err != nil {
+			rSpan.RecordError(err)
+			rSpan.SetStatus(codes.Error, err.Error())
+		}
+		rSpan.End()
 	case req.DealershipID != "":
-		appts, err = uc.appointmentRepo.ListAppointmentsByDealership(ctx, req.DealershipID)
+		rCtx, rSpan := uc.tracer.Start(ctx, "repo.ListAppointmentsByDealership")
+		appts, err = uc.appointmentRepo.ListAppointmentsByDealership(rCtx, req.DealershipID)
+		if err != nil {
+			rSpan.RecordError(err)
+			rSpan.SetStatus(codes.Error, err.Error())
+		}
+		rSpan.End()
 	default:
 		return nil, ErrListFilterRequired
 	}
 	if err != nil {
 		return nil, err
 	}
+
 	items := make([]AppointmentItem, len(appts))
 	for i, a := range appts {
 		items[i] = AppointmentItem{
