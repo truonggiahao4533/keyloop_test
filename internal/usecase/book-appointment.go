@@ -22,9 +22,6 @@ var (
 	ErrVehicleNotOwnedByCustomer = errors.New("vehicle is not owned by the specified customer")
 	ErrDesiredDateInPast         = errors.New("desired date must be in the future")
 	ErrStartTimeInPast           = errors.New("appointment start time must be in the future")
-	ErrDealershipIDRequired      = errors.New("dealership_id is required")
-	ErrServiceTypesRequired      = errors.New("at least one service type is required")
-	ErrListFilterRequired        = errors.New("customer_id or dealership_id is required")
 	ErrSlotOutsideWorkingHours   = errors.New("chosen slot is outside dealership working hours")
 	ErrSlotNotOnWorkingDay       = errors.New("chosen date is not a working day for this dealership")
 )
@@ -111,12 +108,6 @@ func (uc *AppoinmentBookingUseCase) BookAppointment(ctx context.Context, req *Ap
 		span.End()
 	}()
 
-	if req.DealershipID == "" {
-		return nil, ErrDealershipIDRequired
-	}
-	if len(req.Services) == 0 {
-		return nil, ErrServiceTypesRequired
-	}
 	if req.DesiredStartTime.Before(time.Now()) {
 		return nil, ErrDesiredDateInPast
 	}
@@ -220,12 +211,6 @@ func (uc *AppoinmentBookingUseCase) AvailableSlots(ctx context.Context, req *Ava
 		span.End()
 	}()
 
-	if req.DealershipID == "" {
-		return nil, ErrDealershipIDRequired
-	}
-	if len(req.Services) == 0 {
-		return nil, ErrServiceTypesRequired
-	}
 	if req.DesiredDate.Before(time.Now()) {
 		return nil, ErrDesiredDateInPast
 	}
@@ -377,8 +362,6 @@ func (uc *AppoinmentBookingUseCase) ListAppointments(ctx context.Context, req *L
 			rSpan.SetStatus(codes.Error, err.Error())
 		}
 		rSpan.End()
-	default:
-		return nil, ErrListFilterRequired
 	}
 	if err != nil {
 		return nil, err

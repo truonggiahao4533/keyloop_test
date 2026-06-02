@@ -3,13 +3,35 @@ package httpHandler
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"keyloop-test/internal/domain"
 	"keyloop-test/internal/usecase"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
+
+func isValidUUID(s string) bool {
+	_, err := uuid.Parse(s)
+	return err == nil
+}
+
+// requireUUID trims s, rejects blank values, and validates UUID format.
+// It writes the appropriate 400 response and returns ("", false) on failure.
+func requireUUID(c *gin.Context, field, value string) (string, bool) {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": field + " is required"})
+		return "", false
+	}
+	if !isValidUUID(v) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": field + " must be a valid UUID"})
+		return "", false
+	}
+	return v, true
+}
 
 type AppointmentHandler struct {
 	uc *usecase.AppoinmentBookingUseCase
@@ -68,11 +90,31 @@ func (h *AppointmentHandler) BookAppointment(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	customerID, ok := requireUUID(c, "customer_id", req.CustomerID)
+	if !ok {
+		return
+	}
+	dealershipID, ok := requireUUID(c, "dealership_id", req.DealershipID)
+	if !ok {
+		return
+	}
+	vehicleID, ok := requireUUID(c, "vehicle_id", req.VehicleID)
+	if !ok {
+		return
+	}
+	serviceIDs := make([]string, 0, len(req.Services))
+	for _, svcID := range req.Services {
+		id, ok := requireUUID(c, "service id", svcID)
+		if !ok {
+			return
+		}
+		serviceIDs = append(serviceIDs, id)
+	}
 	out, err := h.uc.BookAppointment(c.Request.Context(), &usecase.AppoinmentBookingInput{
-		CustomerID:       req.CustomerID, //TODO: Replace with JWT token claim
-		DealershipID:     req.DealershipID,
-		VehicleID:        req.VehicleID,
-		Services:         req.Services,
+		CustomerID:       customerID, //TODO: Replace with JWT token claim
+		DealershipID:     dealershipID,
+		VehicleID:        vehicleID,
+		Services:         serviceIDs,
 		DesiredStartTime: req.DesiredStartTime,
 	})
 	if err != nil {
@@ -105,17 +147,36 @@ func (h *AppointmentHandler) BookAppointment(c *gin.Context) {
 // @Failure      500  {object}  errorResponse
 // @Router       /api/v1/appointments/available-slots [get]
 func (h *AppointmentHandler) GetAvailableSlots(c *gin.Context) {
-	dealershipID := c.Query("dealership_id")
-	vehicleID := c.Query("vehicle_id")
-	customerID := c.Query("customer_id")
-	serviceTypes := c.QueryArray("services")
-	desiredTimeStr := c.Query("desired_time")
-
-	if dealershipID == "" || desiredTimeStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dealership_id and desired_time are required"})
+	dealershipID, ok := requireUUID(c, "dealership_id", c.Query("dealership_id"))
+	if !ok {
 		return
 	}
-
+	vehicleID, ok := requireUUID(c, "vehicle_id", c.Query("vehicle_id"))
+	if !ok {
+		return
+	}
+	customerID, ok := requireUUID(c, "customer_id", c.Query("customer_id"))
+	if !ok {
+		return
+	}
+	rawServices := c.QueryArray("services")
+	if len(rawServices) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "services is required"})
+		return
+	}
+	serviceIDs := make([]string, 0, len(rawServices))
+	for _, svcID := range rawServices {
+		id, ok := requireUUID(c, "service id", svcID)
+		if !ok {
+			return
+		}
+		serviceIDs = append(serviceIDs, id)
+	}
+	desiredTimeStr := strings.TrimSpace(c.Query("desired_time"))
+	if desiredTimeStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "desired_time is required"})
+		return
+	}
 	desiredTime, err := time.Parse(time.RFC3339, desiredTimeStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "desired_time must be RFC3339 format"})
@@ -125,7 +186,7 @@ func (h *AppointmentHandler) GetAvailableSlots(c *gin.Context) {
 	out, err := h.uc.AvailableSlots(c.Request.Context(), &usecase.AvailableSlotsInput{
 		CustomerID:   customerID,
 		DealershipID: dealershipID,
-		Services:     serviceTypes,
+		Services:     serviceIDs,
 		VehicleID:    vehicleID,
 		DesiredDate:  desiredTime,
 	})
@@ -183,8 +244,21 @@ type listAppointmentsResponse struct {
 // @Failure      500  {object}  errorResponse
 // @Router       /api/v1/appointments [get]
 func (h *AppointmentHandler) ListAppointments(c *gin.Context) {
-	customerID := c.Query("customer_id")
-	dealershipID := c.Query("dealership_id")
+	customerID := strings.TrimSpace(c.Query("customer_id"))
+	dealershipID := strings.TrimSpace(c.Query("dealership_id"))
+
+	if customerID == "" && dealershipID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "customer_id or dealership_id is required"})
+		return
+	}
+	if customerID != "" && !isValidUUID(customerID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "customer_id must be a valid UUID"})
+		return
+	}
+	if dealershipID != "" && !isValidUUID(dealershipID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "dealership_id must be a valid UUID"})
+		return
+	}
 
 	out, err := h.uc.ListAppointments(c.Request.Context(), &usecase.ListAppointmentsInput{
 		CustomerID:   customerID,
@@ -235,10 +309,6 @@ func appointmentErrorStatus(err error) int {
 		errors.Is(err, usecase.ErrSlotOutsideWorkingHours),
 		errors.Is(err, usecase.ErrSlotNotOnWorkingDay):
 		return http.StatusUnprocessableEntity
-	case errors.Is(err, usecase.ErrDealershipIDRequired),
-		errors.Is(err, usecase.ErrServiceTypesRequired),
-		errors.Is(err, usecase.ErrListFilterRequired):
-		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError
 	}

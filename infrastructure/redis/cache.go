@@ -2,7 +2,7 @@ package rediscache
 
 import (
 	"context"
-	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/redis/go-redis/v9"
@@ -16,7 +16,7 @@ func NewRedisClient() *redis.Client {
 	}
 	client := redis.NewClient(&redis.Options{Addr: addr})
 	if err := client.Ping(context.Background()).Err(); err != nil {
-		fmt.Printf("redis ping failed (cache unavailable): %v\n", err)
+		slog.Warn("redis ping failed, cache unavailable", "error", err)
 	}
 	return client
 }

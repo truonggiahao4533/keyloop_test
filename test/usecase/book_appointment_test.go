@@ -241,32 +241,6 @@ func newUC(
 
 // ─── tests ────────────────────────────────────────────────────────────────────
 
-func TestBookAppointment_MissingDealershipID(t *testing.T) {
-	uc := newUC(&stubDealershipRepo{}, &stubServiceDefRepo{}, &stubVehicleRepo{}, &stubAppointmentRepo{}, &stubCache{})
-	_, err := uc.BookAppointment(context.Background(), &usecase.AppoinmentBookingInput{
-		DealershipID:     "",
-		Services:         []string{"oil_change"},
-		DesiredStartTime: futureTime(9),
-		VehicleID:        "v-001",
-	})
-	if !errors.Is(err, usecase.ErrDealershipIDRequired) {
-		t.Errorf("want ErrDealershipIDRequired, got %v", err)
-	}
-}
-
-func TestBookAppointment_EmptyServices(t *testing.T) {
-	uc := newUC(&stubDealershipRepo{}, &stubServiceDefRepo{}, &stubVehicleRepo{}, &stubAppointmentRepo{}, &stubCache{})
-	_, err := uc.BookAppointment(context.Background(), &usecase.AppoinmentBookingInput{
-		DealershipID:     "d-001",
-		Services:         []string{},
-		DesiredStartTime: futureTime(9),
-		VehicleID:        "v-001",
-	})
-	if !errors.Is(err, usecase.ErrServiceTypesRequired) {
-		t.Errorf("want ErrServiceTypesRequired, got %v", err)
-	}
-}
-
 func TestBookAppointment_ServiceNotFound_CacheMissAndDBMiss(t *testing.T) {
 	cache := &stubCache{hit: false}
 	serviceRepo := &stubServiceDefRepo{err: errors.New("not found")}
@@ -753,26 +727,6 @@ func availableSlotsReq() *usecase.AvailableSlotsInput {
 	}
 }
 
-func TestAvailableSlots_MissingDealershipID(t *testing.T) {
-	uc := newUC(&stubDealershipRepo{}, &stubServiceDefRepo{}, &stubVehicleRepo{}, &stubAppointmentRepo{}, &stubCache{})
-	req := availableSlotsReq()
-	req.DealershipID = ""
-	_, err := uc.AvailableSlots(context.Background(), req)
-	if !errors.Is(err, usecase.ErrDealershipIDRequired) {
-		t.Errorf("want ErrDealershipIDRequired, got %v", err)
-	}
-}
-
-func TestAvailableSlots_EmptyServices(t *testing.T) {
-	uc := newUC(&stubDealershipRepo{}, &stubServiceDefRepo{}, &stubVehicleRepo{}, &stubAppointmentRepo{}, &stubCache{})
-	req := availableSlotsReq()
-	req.Services = []string{}
-	_, err := uc.AvailableSlots(context.Background(), req)
-	if !errors.Is(err, usecase.ErrServiceTypesRequired) {
-		t.Errorf("want ErrServiceTypesRequired, got %v", err)
-	}
-}
-
 func TestAvailableSlots_DesiredDateInPast(t *testing.T) {
 	uc := newUC(&stubDealershipRepo{}, &stubServiceDefRepo{}, &stubVehicleRepo{}, &stubAppointmentRepo{}, &stubCache{})
 	req := availableSlotsReq()
@@ -1064,14 +1018,6 @@ func sampleAppointment(id, customerID, vehicleID, dealershipID string) domain.Ap
 }
 
 // ─── ListAppointments tests ───────────────────────────────────────────────────
-
-func TestListAppointments_NoFilter_ReturnsError(t *testing.T) {
-	uc := newListUC(&listableAppointmentRepo{})
-	_, err := uc.ListAppointments(context.Background(), &usecase.ListAppointmentsInput{})
-	if !errors.Is(err, usecase.ErrListFilterRequired) {
-		t.Errorf("want ErrListFilterRequired, got %v", err)
-	}
-}
 
 func TestListAppointments_ByCustomer_ReturnsAppointments(t *testing.T) {
 	appts := []domain.Appointment{

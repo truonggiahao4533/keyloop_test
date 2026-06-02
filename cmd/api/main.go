@@ -10,6 +10,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -36,7 +37,7 @@ func main() {
 	}
 	defer func() {
 		if err := otelShutdown(context.Background()); err != nil {
-			fmt.Printf("error shutting down OTel: %v\n", err)
+			slog.Error("OTel shutdown failed", "error", err)
 		}
 	}()
 
@@ -91,7 +92,7 @@ func main() {
 
 	// Warm up service cache from DB at startup
 	if err := appointmentUC.WarmCache(ctx); err != nil {
-		fmt.Printf("warning: cache warm-up failed: %v\n", err)
+		slog.Warn("cache warm-up failed", "error", err)
 	}
 
 	// Initialize Handlers and Routes
@@ -105,8 +106,8 @@ func main() {
 		port = "8080"
 	}
 
-	fmt.Printf("Server listening on :%s\n", port)
+	slog.Info("server listening", "port", port)
 	if err := r.Run(":" + port); err != nil {
-		fmt.Printf("server error: %v\n", err)
+		slog.Error("server error", "error", err)
 	}
 }

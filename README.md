@@ -13,6 +13,7 @@ A RESTful API for booking vehicle service appointments at dealerships. Built wit
 - [API Reference](#api-reference)
 - [Testing](#testing)
 - [Observability](#observability)
+- [Future Improvements](#future-improvements)
 - [AI Collaboration Narrative](#ai-collaboration-narrative)
 
 ---
@@ -279,6 +280,44 @@ make watch | jq .
    ```
 
 3. Open `http://localhost:16686` to browse traces.
+
+---
+
+## Future Improvements
+
+The following areas are identified for future development, listed roughly in priority order.
+
+### API & Business Logic
+
+**Appointment lifecycle management**
+The API currently supports booking and listing. The full status lifecycle — confirming, cancelling, and rescheduling — is defined in the domain (`CanCancel`, `IsConfirmed`) but has no HTTP endpoints yet. A `PATCH /api/v1/appointments/:id/status` endpoint is the natural next step.
+
+**Pagination for `ListAppointments`**
+`GET /api/v1/appointments` returns all matching records in a single response. For production use, cursor-based pagination (using `appointment_id` as a cursor against an indexed `created_at` column) should be added to bound response size.
+
+### Security
+
+**Authentication and authorisation**
+There is no auth layer. All endpoints are unauthenticated. JWT-based auth (e.g., via a middleware that validates a Bearer token) should be added, with role checks: customers may only see their own appointments; dealership staff may see all appointments for their dealership.
+
+**Rate limiting**
+No rate limiting is applied. The Gin middleware stack should include a token-bucket limiter (e.g., `golang.org/x/time/rate`) to protect the booking endpoint from abusive burst traffic.
+
+### Reliability & Operational Readiness
+
+**Health and readiness endpoints**
+There is no `/healthz` or `/readyz` endpoint. Kubernetes liveness and readiness probes require these. The readiness probe should check Postgres connectivity and Redis reachability before declaring the pod ready.
+
+**Graceful shutdown**
+The server starts with `r.Run()` and has no shutdown timeout. The signal context is wired but `r.Run()` does not respect it. Switching to `http.Server` with `Shutdown(ctx)` allows in-flight requests to complete before the process exits.
+
+**Redis cache invalidation**
+The service cache uses a fixed TTL with no active invalidation. If a service's `EstimatedMinutes` or `Price` is updated in the database, the stale cached value persists until TTL expiry. A write-through or pub/sub invalidation strategy should be added when service editing is introduced.
+
+### Observability
+
+**Business metrics**
+The OTel meter provider is initialised but no metrics are recorded. Counters for bookings attempted/succeeded/failed and a histogram for slot-lookup latency would enable alerting on booking success rate regressions.
 
 ---
 
