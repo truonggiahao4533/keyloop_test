@@ -10,6 +10,7 @@ WHERE
   EXISTS (
     SELECT 1 FROM service_bays b
     WHERE b.dealership_id = sqlc.arg(dealership_id)
+    AND b.status = 'active'
     AND b.id NOT IN (
       SELECT service_bay_id FROM appointments
       WHERE status IN ('pending', 'confirmed')
@@ -22,6 +23,7 @@ WHERE
   EXISTS (
     SELECT 1 FROM technicians t
     WHERE t.dealership_id = sqlc.arg(dealership_id)
+    AND t.status = 'active'
     AND t.id IN (
       -- tech must have ALL required skills
       SELECT technician_id FROM technician_skills
