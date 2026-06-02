@@ -10,7 +10,10 @@ import (
 	repoIntf "keyloop-test/internal/repository"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
+
+const pgExclusionViolation = "23P01"
 
 type appointmentRepo struct {
 	q *sqlc.Queries
@@ -121,6 +124,48 @@ func (r *appointmentRepo) ListAppointmentsByCustomer(ctx context.Context, custom
 	return res, nil
 }
 
+func (r *appointmentRepo) ListAppointmentsByCustomerAndDealership(ctx context.Context, customerID, dealershipID string) ([]domain.Appointment, error) {
+	cuid, err := uuid.Parse(customerID)
+	if err != nil {
+		return nil, err
+	}
+	duid, err := uuid.Parse(dealershipID)
+	if err != nil {
+		return nil, err
+	}
+	as, err := r.q.ListAppointmentsByCustomerAndDealership(ctx, sqlc.ListAppointmentsByCustomerAndDealershipParams{
+		CustomerID:   cuid,
+		DealershipID: duid,
+	})
+	if err != nil {
+		return nil, err
+	}
+	res := make([]domain.Appointment, len(as))
+	for i, a := range as {
+		var services []*domain.ServiceSnapshot
+		if err := json.Unmarshal(a.Services, &services); err != nil {
+			return nil, err
+		}
+		res[i] = domain.Appointment{
+			ID:           a.ID.String(),
+			CustomerID:   a.CustomerID.String(),
+			VehicleID:    a.VehicleID.String(),
+			DealershipID: a.DealershipID.String(),
+			ServiceBayID: a.ServiceBayID.String(),
+			TechnicianID: a.TechnicianID.String(),
+			Services:     services,
+			Status:       domain.AppointmentStatus(a.Status),
+			StartTime:    a.StartTime,
+			EndTime:      a.EndTime,
+			Notes:        a.Notes.String,
+			DeletedAt:    a.DeletedAt.Time,
+			CreatedAt:    a.CreatedAt,
+			UpdatedAt:    a.UpdatedAt,
+		}
+	}
+	return res, nil
+}
+
 func (r *appointmentRepo) CreateAppointment(ctx context.Context, appt *domain.Appointment) (*domain.Appointment, error) {
 	cuid, err := uuid.Parse(appt.CustomerID)
 	if err != nil {
@@ -167,6 +212,9 @@ func (r *appointmentRepo) CreateAppointment(ctx context.Context, appt *domain.Ap
 		ServiceIds:   serviceIDs,
 	})
 	if err != nil {
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == pgExclusionViolation {
+			return nil, domain.ErrTimeSlotConflict
+		}
 		return nil, err
 	}
 	return &domain.Appointment{

@@ -61,6 +61,7 @@ type Querier interface {
 	// =========================================================================
 	GetVehicle(ctx context.Context, id uuid.UUID) (Vehicle, error)
 	ListAppointmentsByCustomer(ctx context.Context, customerID uuid.UUID) ([]Appointment, error)
+	ListAppointmentsByCustomerAndDealership(ctx context.Context, arg ListAppointmentsByCustomerAndDealershipParams) ([]Appointment, error)
 	ListAppointmentsByDealership(ctx context.Context, dealershipID uuid.UUID) ([]Appointment, error)
 	ListCustomers(ctx context.Context) ([]Customer, error)
 	ListDealerships(ctx context.Context) ([]Dealership, error)

@@ -11,3 +11,8 @@ sql:
         emit_prepared_queries: false
         emit_interface: true
         emit_exact_table_names: false
+        overrides:
+          - db_type: "integer[]"
+            go_type:
+              import: "github.com/lib/pq"
+              type: "Int64Array"

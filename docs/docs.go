@@ -17,6 +17,50 @@ const docTemplate = `{
     "basePath": "{{.BasePath}}",
     "paths": {
         "/api/v1/appointments": {
+            "get": {
+                "description": "Returns appointments filtered by customer_id or dealership_id (one is required)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "appointments"
+                ],
+                "summary": "List appointments",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Customer UUID",
+                        "name": "customer_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Dealership UUID",
+                        "name": "dealership_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/httpHandler.listAppointmentsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpHandler.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpHandler.errorResponse"
+                        }
+                    }
+                }
+            },
             "post": {
                 "description": "Create a new service appointment at a dealership for the chosen time slot",
                 "consumes": [
@@ -161,6 +205,53 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "httpHandler.appointmentJSON": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "example": "2025-01-10T08:00:00Z"
+                },
+                "customer_id": {
+                    "type": "string",
+                    "example": "c1a2b3c4-d5e6-7890-abcd-ef1234567890"
+                },
+                "dealership_id": {
+                    "type": "string",
+                    "example": "d1e2f3a4-b5c6-7890-abcd-ef1234567890"
+                },
+                "end_time": {
+                    "type": "string",
+                    "example": "2025-01-15T10:15:00Z"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "f1a2b3c4-d5e6-7890-abcd-ef1234567890"
+                },
+                "notes": {
+                    "type": "string",
+                    "example": ""
+                },
+                "services": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/httpHandler.serviceSnapshotJSON"
+                    }
+                },
+                "start_time": {
+                    "type": "string",
+                    "example": "2025-01-15T09:00:00Z"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "pending"
+                },
+                "vehicle_id": {
+                    "type": "string",
+                    "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                }
+            }
+        },
         "httpHandler.availableSlotsResponse": {
             "type": "object",
             "properties": {
@@ -234,6 +325,38 @@ const docTemplate = `{
                 "error": {
                     "type": "string",
                     "example": "dealership not found"
+                }
+            }
+        },
+        "httpHandler.listAppointmentsResponse": {
+            "type": "object",
+            "properties": {
+                "appointments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/httpHandler.appointmentJSON"
+                    }
+                }
+            }
+        },
+        "httpHandler.serviceSnapshotJSON": {
+            "type": "object",
+            "properties": {
+                "estimated_minutes": {
+                    "type": "integer",
+                    "example": 30
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Oil Change"
+                },
+                "price": {
+                    "type": "number",
+                    "example": 49.99
+                },
+                "service_id": {
+                    "type": "string",
+                    "example": "oil_change"
                 }
             }
         },

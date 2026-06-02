@@ -19,9 +19,25 @@ services:
     networks:
       - keyloop-test-network
     depends_on:
-       postgresql:
+      migrate:
+        condition: service_completed_successfully
+      redis:
         condition: service_healthy
-       redis:
+
+#Migrations
+  migrate:
+    image: migrate/migrate
+    container_name: keyloop-test-migrate
+    networks:
+      - keyloop-test-network
+    volumes:
+      - ./migration:/migration
+    command: >
+      -path=/migration
+      -database postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=disable
+      up
+    depends_on:
+      postgresql:
         condition: service_healthy
 
 #Postgres 

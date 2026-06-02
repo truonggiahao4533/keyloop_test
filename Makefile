@@ -42,15 +42,8 @@ swagger:
 install-tools:
 	go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
 
-up: 
+up:
 	docker compose -f docker-compose.yml --env-file .env up -d
-	docker run --rm \
-      --network keyloop-test-network \
-      -v $(PWD)/migration:/migration \
-      migrate/migrate \
-      -path=/migration \
-      -verbose \
-      -database "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)?sslmode=disable" up
 build:
 	docker build -f Dockerfile -t keyloop-test .
 

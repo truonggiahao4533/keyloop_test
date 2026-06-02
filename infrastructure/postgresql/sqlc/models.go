@@ -174,17 +174,18 @@ type Customer struct {
 }
 
 type Dealership struct {
-	ID        uuid.UUID    `json:"id"`
-	Name      string       `json:"name"`
-	Address   string       `json:"address"`
-	City      string       `json:"city"`
-	Phone     string       `json:"phone"`
-	IsActive  bool         `json:"is_active"`
-	OpenTime  time.Time    `json:"open_time"`
-	CloseTime time.Time    `json:"close_time"`
-	DeletedAt sql.NullTime `json:"deleted_at"`
-	CreatedAt time.Time    `json:"created_at"`
-	UpdatedAt time.Time    `json:"updated_at"`
+	ID          uuid.UUID    `json:"id"`
+	Name        string       `json:"name"`
+	Address     string       `json:"address"`
+	City        string       `json:"city"`
+	Phone       string       `json:"phone"`
+	IsActive    bool         `json:"is_active"`
+	OpenTime    time.Time    `json:"open_time"`
+	CloseTime   time.Time    `json:"close_time"`
+	WorkingDays []int32      `json:"working_days"`
+	DeletedAt   sql.NullTime `json:"deleted_at"`
+	CreatedAt   time.Time    `json:"created_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
 }
 
 type Service struct {

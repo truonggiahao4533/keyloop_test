@@ -12,7 +12,7 @@ A dealership appointment booking system that allows users to book vehicle servic
 |---|---|---|
 | Dealership active status | Rarely | Cache (TTL: 1–24 hrs) |
 | Services offered | Rarely | Cache (TTL: 1–24 hrs) |
-| Technician qualifications | Occasionally | Cache (TTL: 1–24 hrs) |
+| Technician qualifications | Occasionally | Always DB  |
 | Registered vehicles | Occasionally | Cache (TTL: 30 min) |
 | Service bay availability | Frequent | Always DB |
 | Appointments | Constant | Always DB |
@@ -38,19 +38,20 @@ A dealership appointment booking system that allows users to book vehicle servic
 
 ```
 User provides:
+  - Desired date
   - Dealership
   - Vehicle
   - Service Type
         │
         ▼
 [Step 1] Validate inputs
-         - Is dealership valid & active?        ← Redis Cache
-         - Does dealership offer this service?  ← Redis Cache
-         - Is vehicle registered here?          ← Redis Cache
+         - Is desired date in the past?     
+         - Is dealership valid & active?    ← DB 
+         - Does services exist ?            ← Redis Cache
         │
         ▼
 [Step 2] Calculate service duration
-         e.g. Brake Service = 60 min = 2 consecutive slots
+         e.g. Total Services Duration = 60 min = 1 consecutive slots
         │
         ▼
 [Step 3] Query available slots                  ← DB (exclusion-based)
@@ -63,28 +64,20 @@ User provides:
          e.g. "Mon 9:00, Mon 10:30, Tue 8:00..."
         │
         ▼
-[Step 5] User picks a slot
+[Step 5] User picks a slot 
         │
         ▼
-[Step 6] INSERT into reservations table         ← Locks the slot (5–10 min TTL)
+[Step 6] BEGIN TRANSACTION
+           Validate slot still available        ← DB check inside tx
+           INSERT into appointments             ← EXCLUDE gist prevents double-booking
+         COMMIT
          │
          ├── FAIL (conflict) → "Slot just taken, pick another"
          │
-         SUCCESS → slot is held for this user
-        │
-        ▼
-[Step 7] User confirms on review screen
-         │
-         ├── User abandons → reservation expires → slot auto-released
-         │
-         User confirms
-         │
-         ▼
-[Step 8] BEGIN TRANSACTION
-           INSERT into appointments
-           DELETE from reservations
-         COMMIT
+         SUCCESS → appointment confirmed
 ```
+
+> **Note — Reservation Service (future):** A `reservations` table acting as a short-lived lock (5–10 min TTL) should be introduced if a payment or user-confirmation step is required between slot selection and final booking. Without that intermediate step, direct transactional insert is simpler and equally safe due to the `EXCLUDE USING gist` constraints on the appointments table.
 
 ---
 
@@ -158,7 +151,7 @@ WHERE
 
 ---
 
-## 6. Race Condition Protection — Reservation Table
+## 6. Race Condition Protection — Transactional Insert
 
 ### The Problem (TOCTOU Race Condition)
 
@@ -170,49 +163,25 @@ Both click Book simultaneously
   → DOUBLE BOOKING 💥
 ```
 
-### The Solution — Reservation Table as a Temporary Lock
+### The Solution — EXCLUDE USING gist on Appointments
+
+The `appointments` table carries `EXCLUDE USING gist` constraints directly, so a concurrent insert for an overlapping slot will fail with a conflict error rather than producing a double booking:
 
 ```sql
-CREATE TABLE reservations (
-  id            UUID PRIMARY KEY,
-  bay_id        UUID NOT NULL,
-  technician_id UUID NOT NULL,
-  start_time    TIMESTAMP NOT NULL,
-  end_time      TIMESTAMP NOT NULL,
-  user_id       UUID NOT NULL,
-  expires_at    TIMESTAMP NOT NULL,
-  status        VARCHAR(20) DEFAULT 'PENDING',
+-- Prevent overlapping bookings for the same bay
+CONSTRAINT no_overlap_bay EXCLUDE USING gist (
+  service_bay_id WITH =,
+  tstzrange(start_time, end_time) WITH &&
+) WHERE (deleted_at IS NULL AND status IN ('pending', 'confirmed')),
 
-  -- Prevent overlapping reservations for the same bay
-  CONSTRAINT no_overlap_bay EXCLUDE USING gist (
-    bay_id WITH =,
-    tsrange(start_time, end_time) WITH &&
-  ),
-
-  -- Prevent overlapping reservations for the same technician
-  CONSTRAINT no_overlap_tech EXCLUDE USING gist (
-    technician_id WITH =,
-    tsrange(start_time, end_time) WITH &&
-  )
-);
+-- Prevent overlapping bookings for the same technician
+CONSTRAINT no_overlap_tech EXCLUDE USING gist (
+  technician_id WITH =,
+  tstzrange(start_time, end_time) WITH &&
+) WHERE (deleted_at IS NULL AND status IN ('pending', 'confirmed'))
 ```
 
-The `EXCLUDE USING gist` constraint handles **overlapping time ranges** — something a plain `UNIQUE` constraint cannot do.
-
-### Reservation Expiry Cleanup
-
-```sql
--- Run every minute via cron job or DB scheduler
-DELETE FROM reservations
-WHERE expires_at < NOW()
-AND status = 'PENDING';
-```
-
-Availability queries must also treat expired reservations as free:
-
-```sql
-AND (reservations.expires_at > NOW() OR reservations.id IS NULL)
-```
+One of the two concurrent inserts will win; the other receives a constraint violation which the API surfaces as "slot just taken, pick another."
 
 ---
 
@@ -263,10 +232,7 @@ Validation Layer  ──────────→  Redis Cache
 Availability Query  ──────────┘ (always DB, no cache)
       │
       ▼
-Reservation Service  ──→  reservations table (EXCLUDE gist lock)
-      │
-      ▼
-Booking Service  ────→  appointments table + invalidate cache
+Booking Service  ────→  appointments table (EXCLUDE gist lock) + invalidate cache
 ```
 
 ---
@@ -278,15 +244,134 @@ Booking Service  ────→  appointments table + invalidate cache
 | Slot unit | 30 minutes | Industry standard, flexible for multi-slot services |
 | Availability method | Exclusion-based | Simpler, unlimited range, always accurate |
 | Pre-compute / sliding window | Not used | Unnecessary complexity for dealership-scale traffic |
-| Race condition handling | Reservation table + EXCLUDE gist | Overlap-safe locking with auto-expiry |
+| Race condition handling | EXCLUDE gist on appointments | Overlap-safe, no extra table needed for direct booking |
+| Reservation table | Not used (future option) | Only needed if a payment/confirmation step is introduced |
 | Cache pattern | Cache-Aside | Safe, simple, invalidate on write |
 | Slot data | Always live DB | Real-time accuracy required |
 | Stable lookup data | Redis cache | Rarely changes, high read frequency |
 
 ---
 
-## 10. When to Revisit These Decisions
+## 10. Observability — OpenTelemetry
 
+### Overview
+
+The system uses the [OpenTelemetry Go SDK](https://opentelemetry.io/docs/languages/go/) to provide distributed tracing, metrics, and structured logging across the HTTP layer and usecase layer. All three pillars are initialised at startup before any other component and shut down gracefully on `SIGINT`/`SIGTERM` so no telemetry data is lost.
+
+---
+
+### Initialisation (`infrastructure/telemetry/otel.go`)
+
+`SetupOTel(ctx)` is called at the very beginning of `main()`, before the database, cache, or HTTP server are created. It returns a `shutdown` function that is deferred and called on process exit.
+
+```
+main()
+  │
+  ├─ SetupOTel(ctx)
+  │    ├─ Propagator  → W3C TraceContext + Baggage  (registered as global)
+  │    ├─ TracerProvider → stdout exporter (batched)  (registered as global)
+  │    ├─ MeterProvider  → stdout exporter (periodic) (registered as global)
+  │    └─ LoggerProvider → stdout exporter (batched)  (registered as global)
+  │
+  ├─ DB / Redis / Repos / UseCases ...
+  └─ HTTP server starts
+```
+
+All three providers use **stdout exporters** suitable for development and log-aggregation pipelines (e.g. forwarded to a collector). Swapping to an OTLP exporter requires only changing the exporter in `SetupOTel` — no other code changes needed.
+
+---
+
+### HTTP Layer (`internal/adapter/http/middleware.go`)
+
+`OTelMiddleware("keyloop-api")` is registered as the first Gin middleware in `RegisterRoutes`. It wraps every inbound HTTP request:
+
+```
+Inbound request
+      │
+      ▼
+Extract W3C traceparent / baggage headers
+      │
+      ▼
+Start server-kind span  (tentative name = URL path)
+      │
+      ▼
+c.Next()  ── handler runs ──▶  downstream usecase span (child)
+      │
+      ▼
+Rename span to "METHOD /route/pattern"  (c.FullPath() post-routing)
+Set attributes:
+  http.request.method   = GET / POST
+  http.route            = /api/v1/appointments/available-slots
+  http.response.status_code = 200 / 422 / 500
+Set status codes.Error on 5xx
+span.End()
+```
+
+The span name uses the matched **route pattern** (not the raw URL) so high-cardinality paths like `/api/v1/appointments/available-slots?dealership_id=…` are collapsed into a single trace group.
+
+---
+
+### Usecase Layer (`internal/usecase/book-appointment.go`)
+
+A `trace.Tracer` is stored on `AppoinmentBookingUseCase` and initialised once in the constructor via `otel.Tracer("keyloop-test/usecase")`. Each public method creates a **child span** that is automatically linked to the parent HTTP span through the propagated context.
+
+| Method | Span name | Key attributes |
+|---|---|---|
+| `BookAppointment` | `BookAppointment` | `dealership.id`, `vehicle.id`, `services.count` |
+| `AvailableSlots` | `AvailableSlots` | `dealership.id`, `vehicle.id`, `services.count`, `desired_date` |
+| `ListAppointments` | `ListAppointments` | `customer.id`, `dealership.id` |
+
+All three methods use the **named-return + deferred error recording** pattern so no error-return path needs manual instrumentation:
+
+```go
+func (uc *...) BookAppointment(ctx, req) (_ *Output, err error) {
+    ctx, span := uc.tracer.Start(ctx, "BookAppointment", ...)
+    defer func() {
+        if err != nil {
+            span.RecordError(err)
+            span.SetStatus(codes.Error, err.Error())
+        }
+        span.End()
+    }()
+    // ... business logic unchanged
+}
+```
+
+---
+
+### Trace Propagation
+
+```
+Client (with traceparent header)
+        │
+        ▼
+OTelMiddleware  — extracts context, starts root span
+        │  (ctx passed through gin → handler → usecase)
+        ▼
+BookAppointment span  (child of HTTP span)
+        │
+        └─ future: DB/Redis spans can be added as further children
+```
+
+If the client does not send a `traceparent` header, a new root trace is created automatically.
+
+---
+
+### Extending Observability
+
+| What to add | Where |
+|---|---|
+| Database query spans | Wrap `sql.DB` with `otelsql` driver or add manual spans in each repository method |
+| Redis spans | Add manual spans in `infrastructure/redis` cache methods |
+| OTLP export (Jaeger, Tempo, etc.) | Replace `stdouttrace.New` in `SetupOTel` with `otlptracegrpc.New` |
+| Custom business metrics | Use `otel.Meter("keyloop-test/usecase")` to record counters/histograms (e.g. bookings per dealership) |
+| Structured log correlation | Inject `trace_id` / `span_id` into log fields using `trace.SpanFromContext(ctx)` |
+
+---
+
+## 11. When to Revisit These Decisions
+
+- **Add reservation table** if a payment or explicit user-confirmation step is introduced between slot selection and final booking
 - **Add pre-compute + sliding window** if the system scales to thousands of simultaneous availability checks across hundreds of dealerships
 - **Add read replicas** for the availability query if DB read load becomes a bottleneck
 - **Add a queue (e.g. Redis pub/sub)** for cache invalidation if multiple services need to react to booking events

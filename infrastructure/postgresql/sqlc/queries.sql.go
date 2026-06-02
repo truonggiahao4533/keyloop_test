@@ -165,21 +165,22 @@ func (q *Queries) CreateCustomer(ctx context.Context, arg CreateCustomerParams) 
 
 const createDealership = `-- name: CreateDealership :one
 INSERT INTO dealerships (
-  id, name, address, city, phone, is_active, open_time, close_time
+  id, name, address, city, phone, is_active, open_time, close_time, working_days
 ) VALUES (
-  $1, $2, $3, $4, $5, $6, $7, $8
-) RETURNING id, name, address, city, phone, is_active, open_time, close_time, deleted_at, created_at, updated_at
+  $1, $2, $3, $4, $5, $6, $7, $8, $9
+) RETURNING id, name, address, city, phone, is_active, open_time, close_time, working_days, deleted_at, created_at, updated_at
 `
 
 type CreateDealershipParams struct {
-	ID        uuid.UUID `json:"id"`
-	Name      string    `json:"name"`
-	Address   string    `json:"address"`
-	City      string    `json:"city"`
-	Phone     string    `json:"phone"`
-	IsActive  bool      `json:"is_active"`
-	OpenTime  time.Time `json:"open_time"`
-	CloseTime time.Time `json:"close_time"`
+	ID          uuid.UUID `json:"id"`
+	Name        string    `json:"name"`
+	Address     string    `json:"address"`
+	City        string    `json:"city"`
+	Phone       string    `json:"phone"`
+	IsActive    bool      `json:"is_active"`
+	OpenTime    time.Time `json:"open_time"`
+	CloseTime   time.Time `json:"close_time"`
+	WorkingDays []int32   `json:"working_days"`
 }
 
 func (q *Queries) CreateDealership(ctx context.Context, arg CreateDealershipParams) (Dealership, error) {
@@ -192,6 +193,7 @@ func (q *Queries) CreateDealership(ctx context.Context, arg CreateDealershipPara
 		arg.IsActive,
 		arg.OpenTime,
 		arg.CloseTime,
+		pq.Array(arg.WorkingDays),
 	)
 	var i Dealership
 	err := row.Scan(
@@ -203,6 +205,7 @@ func (q *Queries) CreateDealership(ctx context.Context, arg CreateDealershipPara
 		&i.IsActive,
 		&i.OpenTime,
 		&i.CloseTime,
+		pq.Array(&i.WorkingDays),
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -601,7 +604,7 @@ func (q *Queries) GetCustomer(ctx context.Context, id uuid.UUID) (Customer, erro
 
 const getDealership = `-- name: GetDealership :one
 
-SELECT id, name, address, city, phone, is_active, open_time, close_time, deleted_at, created_at, updated_at FROM dealerships WHERE id = $1
+SELECT id, name, address, city, phone, is_active, open_time, close_time, working_days, deleted_at, created_at, updated_at FROM dealerships WHERE id = $1
 `
 
 // =========================================================================
@@ -619,6 +622,7 @@ func (q *Queries) GetDealership(ctx context.Context, id uuid.UUID) (Dealership, 
 		&i.IsActive,
 		&i.OpenTime,
 		&i.CloseTime,
+		pq.Array(&i.WorkingDays),
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -767,6 +771,53 @@ func (q *Queries) ListAppointmentsByCustomer(ctx context.Context, customerID uui
 	return items, nil
 }
 
+const listAppointmentsByCustomerAndDealership = `-- name: ListAppointmentsByCustomerAndDealership :many
+SELECT id, customer_id, vehicle_id, dealership_id, service_bay_id, technician_id, services, status, start_time, end_time, notes, deleted_at, created_at, updated_at FROM appointments WHERE customer_id = $1 AND dealership_id = $2 ORDER BY start_time DESC
+`
+
+type ListAppointmentsByCustomerAndDealershipParams struct {
+	CustomerID   uuid.UUID `json:"customer_id"`
+	DealershipID uuid.UUID `json:"dealership_id"`
+}
+
+func (q *Queries) ListAppointmentsByCustomerAndDealership(ctx context.Context, arg ListAppointmentsByCustomerAndDealershipParams) ([]Appointment, error) {
+	rows, err := q.db.QueryContext(ctx, listAppointmentsByCustomerAndDealership, arg.CustomerID, arg.DealershipID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Appointment
+	for rows.Next() {
+		var i Appointment
+		if err := rows.Scan(
+			&i.ID,
+			&i.CustomerID,
+			&i.VehicleID,
+			&i.DealershipID,
+			&i.ServiceBayID,
+			&i.TechnicianID,
+			&i.Services,
+			&i.Status,
+			&i.StartTime,
+			&i.EndTime,
+			&i.Notes,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAppointmentsByDealership = `-- name: ListAppointmentsByDealership :many
 SELECT id, customer_id, vehicle_id, dealership_id, service_bay_id, technician_id, services, status, start_time, end_time, notes, deleted_at, created_at, updated_at FROM appointments WHERE dealership_id = $1 ORDER BY start_time DESC
 `
@@ -846,7 +897,7 @@ func (q *Queries) ListCustomers(ctx context.Context) ([]Customer, error) {
 }
 
 const listDealerships = `-- name: ListDealerships :many
-SELECT id, name, address, city, phone, is_active, open_time, close_time, deleted_at, created_at, updated_at FROM dealerships ORDER BY name ASC
+SELECT id, name, address, city, phone, is_active, open_time, close_time, working_days, deleted_at, created_at, updated_at FROM dealerships ORDER BY name ASC
 `
 
 func (q *Queries) ListDealerships(ctx context.Context) ([]Dealership, error) {
@@ -867,6 +918,7 @@ func (q *Queries) ListDealerships(ctx context.Context) ([]Dealership, error) {
 			&i.IsActive,
 			&i.OpenTime,
 			&i.CloseTime,
+			pq.Array(&i.WorkingDays),
 			&i.DeletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -1147,20 +1199,22 @@ SET name = $2,
     is_active = $6,
     open_time = $7,
     close_time = $8,
+    working_days = $9,
     updated_at = NOW()
 WHERE id = $1
-RETURNING id, name, address, city, phone, is_active, open_time, close_time, deleted_at, created_at, updated_at
+RETURNING id, name, address, city, phone, is_active, open_time, close_time, working_days, deleted_at, created_at, updated_at
 `
 
 type UpdateDealershipParams struct {
-	ID        uuid.UUID `json:"id"`
-	Name      string    `json:"name"`
-	Address   string    `json:"address"`
-	City      string    `json:"city"`
-	Phone     string    `json:"phone"`
-	IsActive  bool      `json:"is_active"`
-	OpenTime  time.Time `json:"open_time"`
-	CloseTime time.Time `json:"close_time"`
+	ID          uuid.UUID `json:"id"`
+	Name        string    `json:"name"`
+	Address     string    `json:"address"`
+	City        string    `json:"city"`
+	Phone       string    `json:"phone"`
+	IsActive    bool      `json:"is_active"`
+	OpenTime    time.Time `json:"open_time"`
+	CloseTime   time.Time `json:"close_time"`
+	WorkingDays []int32   `json:"working_days"`
 }
 
 func (q *Queries) UpdateDealership(ctx context.Context, arg UpdateDealershipParams) (Dealership, error) {
@@ -1173,6 +1227,7 @@ func (q *Queries) UpdateDealership(ctx context.Context, arg UpdateDealershipPara
 		arg.IsActive,
 		arg.OpenTime,
 		arg.CloseTime,
+		pq.Array(arg.WorkingDays),
 	)
 	var i Dealership
 	err := row.Scan(
@@ -1184,6 +1239,7 @@ func (q *Queries) UpdateDealership(ctx context.Context, arg UpdateDealershipPara
 		&i.IsActive,
 		&i.OpenTime,
 		&i.CloseTime,
+		pq.Array(&i.WorkingDays),
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,

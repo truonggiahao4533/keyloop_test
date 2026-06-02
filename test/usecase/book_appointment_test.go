@@ -137,6 +137,9 @@ func (s *stubAppointmentRepo) ListAppointmentsByDealership(_ context.Context, _ 
 func (s *stubAppointmentRepo) ListAppointmentsByCustomer(_ context.Context, _ string) ([]domain.Appointment, error) {
 	return nil, nil
 }
+func (s *stubAppointmentRepo) ListAppointmentsByCustomerAndDealership(_ context.Context, _, _ string) ([]domain.Appointment, error) {
+	return nil, nil
+}
 func (s *stubAppointmentRepo) UpdateAppointmentStatus(_ context.Context, _ *domain.Appointment, _ domain.AppointmentStatus) error {
 	return nil
 }
@@ -164,11 +167,32 @@ func (s *stubCache) SetService(_ context.Context, _ string, _ *domain.Service, _
 // dealership that is open 08:00–18:00 UTC
 func openDealership() *domain.Dealership {
 	return &domain.Dealership{
-		ID:        "d-001",
-		IsActive:  true,
-		OpenTime:  8 * time.Hour,
-		CloseTime: 18 * time.Hour,
+		ID:          "d-001",
+		IsActive:    true,
+		OpenTime:    8 * time.Hour,
+		CloseTime:   18 * time.Hour,
+		WorkingDays: []time.Weekday{0, 1, 2, 3, 4, 5, 6}, // all days — generic test fixture
 	}
+}
+
+func weekdayDealership() *domain.Dealership {
+	return &domain.Dealership{
+		ID:          "d-001",
+		IsActive:    true,
+		OpenTime:    8 * time.Hour,
+		CloseTime:   18 * time.Hour,
+		WorkingDays: []time.Weekday{time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday},
+	}
+}
+
+// nextWeekend returns a future Saturday at the given hour.
+func nextWeekend(hour int) time.Time {
+	t := time.Now().UTC()
+	for t.Weekday() != time.Saturday {
+		t = t.Add(24 * time.Hour)
+	}
+	t = t.Add(24 * time.Hour) // ensure it's in the future even on Saturdays
+	return time.Date(t.Year(), t.Month(), t.Day(), hour, 0, 0, 0, time.UTC)
 }
 
 // futureTime returns a time in UTC at the given hour of day, tomorrow.
@@ -830,6 +854,45 @@ func TestAvailableSlots_EmptyResult_ReturnsEmptySlice(t *testing.T) {
 	}
 	if len(out.AvailableSlots) != 0 {
 		t.Errorf("want 0 slots, got %d", len(out.AvailableSlots))
+	}
+}
+
+func TestBookAppointment_WeekendRejected(t *testing.T) {
+	uc := newUC(
+		&stubDealershipRepo{dealership: weekdayDealership()},
+		&stubServiceDefRepo{},
+		&stubVehicleRepo{vehicle: &domain.Vehicle{ID: "v-001"}},
+		&stubAppointmentRepo{},
+		&stubCache{service: oilChangeService(), hit: true},
+	)
+	_, err := uc.BookAppointment(context.Background(), &usecase.AppoinmentBookingInput{
+		CustomerID:       "c-001",
+		DealershipID:     "d-001",
+		VehicleID:        "v-001",
+		Services:         []string{"svc-oil"},
+		DesiredStartTime: nextWeekend(10),
+	})
+	if !errors.Is(err, usecase.ErrSlotNotOnWorkingDay) {
+		t.Errorf("want ErrSlotNotOnWorkingDay, got %v", err)
+	}
+}
+
+func TestAvailableSlots_WeekendRejected(t *testing.T) {
+	uc := usecase.NewAppointmentBookingUseCase(
+		&stubDealershipRepo{dealership: weekdayDealership()},
+		&stubServiceBayRepo{},
+		&stubTechnicianRepo{},
+		&stubServiceDefRepo{},
+		&stubVehicleRepo{vehicle: &domain.Vehicle{ID: "v-001"}},
+		&stubCache{service: oilChangeService(), hit: true},
+		&configuredAvailabilityRepo{},
+		&stubAppointmentRepo{},
+	)
+	req := availableSlotsReq()
+	req.DesiredDate = nextWeekend(8)
+	_, err := uc.AvailableSlots(context.Background(), req)
+	if !errors.Is(err, usecase.ErrSlotNotOnWorkingDay) {
+		t.Errorf("want ErrSlotNotOnWorkingDay, got %v", err)
 	}
 }
 

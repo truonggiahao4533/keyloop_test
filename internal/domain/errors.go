@@ -5,7 +5,7 @@ import "errors"
 // Appointment errors
 var (
 	ErrAppointmentNotFound = errors.New("appointment not found")
-	ErrTimeSlotConflict    = errors.New("requested time slot conflicts with an existing appointment")
+	ErrTimeSlotConflict    = errors.New("requested time has been taken ,please choose another time")
 	ErrInvalidTimeRange    = errors.New("end time must be after start time")
 	ErrPastAppointmentTime = errors.New("cannot book appointment in the past")
 )
@@ -28,8 +28,8 @@ var (
 
 // Validation errors
 var (
-	ErrInvalidServiceType      = errors.New("invalid or unsupported service type")
+	ErrInvalidServiceType        = errors.New("invalid or unsupported service type")
 	ErrVehicleNotOwnedByCustomer = errors.New("vehicle does not belong to the specified customer")
-	ErrDealershipInactive      = errors.New("dealership is not currently active")
-	ErrTechnicianNotQualified  = errors.New("technician is not qualified for the requested service type")
+	ErrDealershipInactive        = errors.New("dealership is not currently active")
+	ErrTechnicianNotQualified    = errors.New("technician is not qualified for the requested service type")
 )

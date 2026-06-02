@@ -21,10 +21,14 @@ func NewAvailabilitySlotRepository(db *sql.DB) repoIntf.AvailabilitySlotReposito
 }
 
 func (r *AvailableSlotRepository) GetAvailableSlots(ctx context.Context, startTime, endTime time.Time, dealershipID string, duration time.Duration, services []string) ([]domain.AvailableSlot, error) {
+	dealershipUUID, err := uuid.Parse(dealershipID)
+	if err != nil {
+		return nil, err
+	}
 	input := sqlc.GetAvailableSlotsParams{
 		StartDatetime: startTime,
 		EndDatetime:   endTime,
-		DealershipID:  uuid.Must(uuid.Parse(dealershipID)),
+		DealershipID:  dealershipUUID,
 		ServiceTypes:  services,
 		Duration:      int64(duration.Seconds()),
 	}

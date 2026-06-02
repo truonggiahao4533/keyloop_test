@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"keyloop-test/internal/domain"
 	"keyloop-test/internal/usecase"
 
 	"github.com/gin-gonic/gin"
@@ -145,16 +146,98 @@ func (h *AppointmentHandler) GetAvailableSlots(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"available_slots": slots})
 }
 
+type serviceSnapshotJSON struct {
+	ServiceID        string  `json:"service_id"         example:"oil_change"`
+	Name             string  `json:"name"               example:"Oil Change"`
+	EstimatedMinutes int     `json:"estimated_minutes"  example:"30"`
+	Price            float64 `json:"price"              example:"49.99"`
+}
+
+type appointmentJSON struct {
+	ID           string               `json:"id"            example:"f1a2b3c4-d5e6-7890-abcd-ef1234567890"`
+	CustomerID   string               `json:"customer_id"   example:"c1a2b3c4-d5e6-7890-abcd-ef1234567890"`
+	VehicleID    string               `json:"vehicle_id"    example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`
+	DealershipID string               `json:"dealership_id" example:"d1e2f3a4-b5c6-7890-abcd-ef1234567890"`
+	Services     []serviceSnapshotJSON `json:"services"`
+	Status       string               `json:"status"        example:"pending"`
+	StartTime    string               `json:"start_time"    example:"2025-01-15T09:00:00Z"`
+	EndTime      string               `json:"end_time"      example:"2025-01-15T10:15:00Z"`
+	Notes        string               `json:"notes"         example:""`
+	CreatedAt    string               `json:"created_at"    example:"2025-01-10T08:00:00Z"`
+}
+
+type listAppointmentsResponse struct {
+	Appointments []appointmentJSON `json:"appointments"`
+}
+
+// ListAppointments godoc
+//
+// @Summary      List appointments
+// @Description  Returns appointments filtered by customer_id or dealership_id (one is required)
+// @Tags         appointments
+// @Produce      json
+// @Param        customer_id    query     string  false  "Customer UUID"
+// @Param        dealership_id  query     string  false  "Dealership UUID"
+// @Success      200  {object}  listAppointmentsResponse
+// @Failure      400  {object}  errorResponse
+// @Failure      500  {object}  errorResponse
+// @Router       /api/v1/appointments [get]
+func (h *AppointmentHandler) ListAppointments(c *gin.Context) {
+	customerID := c.Query("customer_id")
+	dealershipID := c.Query("dealership_id")
+
+	out, err := h.uc.ListAppointments(c.Request.Context(), &usecase.ListAppointmentsInput{
+		CustomerID:   customerID,
+		DealershipID: dealershipID,
+	})
+	if err != nil {
+		c.JSON(appointmentErrorStatus(err), gin.H{"error": err.Error()})
+		return
+	}
+
+	items := make([]appointmentJSON, len(out.Appointments))
+	for i, a := range out.Appointments {
+		snapshots := make([]serviceSnapshotJSON, len(a.Services))
+		for j, s := range a.Services {
+			snapshots[j] = serviceSnapshotJSON{
+				ServiceID:        s.ServiceID,
+				Name:             s.Name,
+				EstimatedMinutes: s.EstimatedMinutes,
+				Price:            s.Price,
+			}
+		}
+		items[i] = appointmentJSON{
+			ID:           a.ID,
+			CustomerID:   a.CustomerID,
+			VehicleID:    a.VehicleID,
+			DealershipID: a.DealershipID,
+			Services:     snapshots,
+			Status:       a.Status,
+			StartTime:    a.StartTime.Format(time.RFC3339),
+			EndTime:      a.EndTime.Format(time.RFC3339),
+			Notes:        a.Notes,
+			CreatedAt:    a.CreatedAt.Format(time.RFC3339),
+		}
+	}
+
+	c.JSON(http.StatusOK, listAppointmentsResponse{Appointments: items})
+}
+
 func appointmentErrorStatus(err error) int {
 	switch {
 	case errors.Is(err, usecase.ErrDealershipNotFound),
 		errors.Is(err, usecase.ErrVehicleNotFound):
 		return http.StatusNotFound
+	case errors.Is(err, domain.ErrTimeSlotConflict):
+		return http.StatusConflict
 	case errors.Is(err, usecase.ErrDesiredDateInPast),
-		errors.Is(err, usecase.ErrStartTimeInPast):
+		errors.Is(err, usecase.ErrStartTimeInPast),
+		errors.Is(err, usecase.ErrSlotOutsideWorkingHours),
+		errors.Is(err, usecase.ErrSlotNotOnWorkingDay):
 		return http.StatusUnprocessableEntity
 	case errors.Is(err, usecase.ErrDealershipIDRequired),
-		errors.Is(err, usecase.ErrServiceTypesRequired):
+		errors.Is(err, usecase.ErrServiceTypesRequired),
+		errors.Is(err, usecase.ErrListFilterRequired):
 		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError

@@ -115,9 +115,9 @@ SELECT * FROM dealerships ORDER BY name ASC;
 
 -- name: CreateDealership :one
 INSERT INTO dealerships (
-  id, name, address, city, phone, is_active, open_time, close_time
+  id, name, address, city, phone, is_active, open_time, close_time, working_days
 ) VALUES (
-  $1, $2, $3, $4, $5, $6, $7, $8
+  $1, $2, $3, $4, $5, $6, $7, $8, $9
 ) RETURNING *;
 
 -- name: UpdateDealership :one
@@ -129,6 +129,7 @@ SET name = $2,
     is_active = $6,
     open_time = $7,
     close_time = $8,
+    working_days = $9,
     updated_at = NOW()
 WHERE id = $1
 RETURNING *;
@@ -259,6 +260,9 @@ SELECT * FROM appointments WHERE dealership_id = $1 ORDER BY start_time DESC;
 
 -- name: ListAppointmentsByCustomer :many
 SELECT * FROM appointments WHERE customer_id = $1 ORDER BY start_time DESC;
+
+-- name: ListAppointmentsByCustomerAndDealership :many
+SELECT * FROM appointments WHERE customer_id = $1 AND dealership_id = $2 ORDER BY start_time DESC;
 
 -- name: UpdateAppointmentStatus :one
 UPDATE appointments

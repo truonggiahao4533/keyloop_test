@@ -7,13 +7,17 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	_ "keyloop-test/docs"
 	postgrerepository "keyloop-test/infrastructure/postgresql/postgre-repository"
 	rediscache "keyloop-test/infrastructure/redis"
+	"keyloop-test/infrastructure/telemetry"
 	httpHandler "keyloop-test/internal/adapter/http"
 	"keyloop-test/internal/usecase"
 
@@ -23,7 +27,21 @@ import (
 )
 
 func main() {
-	godotenv.Load() // Load environment variables from .env file
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	otelShutdown, err := telemetry.SetupOTel(ctx)
+	if err != nil {
+		panic("failed to setup OTel: " + err.Error())
+	}
+	defer func() {
+		if err := otelShutdown(context.Background()); err != nil {
+			fmt.Printf("error shutting down OTel: %v\n", err)
+		}
+	}()
+
+	godotenv.Load()
+
 	// Initialize Database
 	postgre_host := os.Getenv("POSTGRES_HOST")
 	postgre_port := os.Getenv("POSTGRES_PORT")
@@ -71,10 +89,13 @@ func main() {
 		appointmentRepo,
 	)
 
-	//Run gin server
-	r := gin.Default()
+	// Warm up service cache from DB at startup
+	if err := appointmentUC.WarmCache(ctx); err != nil {
+		fmt.Printf("warning: cache warm-up failed: %v\n", err)
+	}
 
 	// Initialize Handlers and Routes
+	r := gin.Default()
 	appointmentHandler := httpHandler.NewAppointmentHandler(appointmentUC)
 	router := httpHandler.NewRouter(appointmentHandler)
 	router.RegisterRoutes(r)
@@ -83,8 +104,9 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
+
 	fmt.Printf("Server listening on :%s\n", port)
 	if err := r.Run(":" + port); err != nil {
-		panic("failed to start server: " + err.Error())
+		fmt.Printf("server error: %v\n", err)
 	}
 }

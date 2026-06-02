@@ -40,7 +40,11 @@ func toServiceDomain(s sqlc.Service) (*domain.Service, error) {
 }
 
 func (r *serviceRepo) GetService(ctx context.Context, id string) (*domain.Service, error) {
-	row, err := r.q.GetService(ctx, uuid.MustParse(id))
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return nil, err
+	}
+	row, err := r.q.GetService(ctx, uid)
 	if err != nil {
 		return nil, err
 	}

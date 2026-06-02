@@ -1,5 +1,39 @@
 basePath: /
 definitions:
+  httpHandler.appointmentJSON:
+    properties:
+      created_at:
+        example: "2025-01-10T08:00:00Z"
+        type: string
+      customer_id:
+        example: c1a2b3c4-d5e6-7890-abcd-ef1234567890
+        type: string
+      dealership_id:
+        example: d1e2f3a4-b5c6-7890-abcd-ef1234567890
+        type: string
+      end_time:
+        example: "2025-01-15T10:15:00Z"
+        type: string
+      id:
+        example: f1a2b3c4-d5e6-7890-abcd-ef1234567890
+        type: string
+      notes:
+        example: ""
+        type: string
+      services:
+        items:
+          $ref: '#/definitions/httpHandler.serviceSnapshotJSON'
+        type: array
+      start_time:
+        example: "2025-01-15T09:00:00Z"
+        type: string
+      status:
+        example: pending
+        type: string
+      vehicle_id:
+        example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+        type: string
+    type: object
   httpHandler.availableSlotsResponse:
     properties:
       available_slots:
@@ -54,6 +88,28 @@ definitions:
         example: dealership not found
         type: string
     type: object
+  httpHandler.listAppointmentsResponse:
+    properties:
+      appointments:
+        items:
+          $ref: '#/definitions/httpHandler.appointmentJSON'
+        type: array
+    type: object
+  httpHandler.serviceSnapshotJSON:
+    properties:
+      estimated_minutes:
+        example: 30
+        type: integer
+      name:
+        example: Oil Change
+        type: string
+      price:
+        example: 49.99
+        type: number
+      service_id:
+        example: oil_change
+        type: string
+    type: object
   httpHandler.slotJSON:
     properties:
       end:
@@ -71,6 +127,36 @@ info:
   version: "1.0"
 paths:
   /api/v1/appointments:
+    get:
+      description: Returns appointments filtered by customer_id or dealership_id (one
+        is required)
+      parameters:
+      - description: Customer UUID
+        in: query
+        name: customer_id
+        type: string
+      - description: Dealership UUID
+        in: query
+        name: dealership_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/httpHandler.listAppointmentsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpHandler.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpHandler.errorResponse'
+      summary: List appointments
+      tags:
+      - appointments
     post:
       consumes:
       - application/json
