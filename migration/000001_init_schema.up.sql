@@ -141,11 +141,18 @@ CREATE TABLE appointments (
 );
 
 
-CREATE INDEX idx_appointments_start_time ON appointments(start_time);
-CREATE INDEX idx_appointments_end_time ON appointments(end_time);
 CREATE INDEX idx_appointments_dealership_id ON appointments(dealership_id);
 
+CREATE INDEX idx_appointments_bay_time_active
+  ON appointments(service_bay_id, start_time, end_time)
+  WHERE status IN ('pending', 'confirmed')
+    AND deleted_at IS NULL;
 
+CREATE INDEX idx_appointments_tech_time_active
+  ON appointments(technician_id, start_time, end_time)
+  WHERE status IN ('pending', 'confirmed')
+    AND deleted_at IS NULL;
 
-
+CREATE INDEX idx_technician_skills_service
+  ON technician_skills(service_id, technician_id);
 

@@ -293,6 +293,7 @@ available_bay AS (
   SELECT b.id
   FROM service_bays b, slot_range sr
   WHERE b.dealership_id = sqlc.arg(dealership_id)
+    AND b.status = 'active'
     AND NOT EXISTS (
       SELECT 1 FROM appointments a
       WHERE a.service_bay_id = b.id
@@ -307,6 +308,7 @@ available_technician AS (
   SELECT t.id
   FROM technicians t, slot_range sr
   WHERE t.dealership_id = sqlc.arg(dealership_id)
+    AND t.status = 'active'
     AND t.id IN (
       SELECT technician_id FROM technician_skills
       WHERE service_id::text = ANY(sqlc.arg(service_ids)::text[])
