@@ -503,6 +503,25 @@ func TestBookAppointment_LongSingleServiceEndsExactlyAtClose_Succeeds(t *testing
 	}
 }
 
+func TestBookAppointment_VehicleNotOwnedByCustomer(t *testing.T) {
+	cache := &stubCache{service: oilChangeService(), hit: true}
+	dealershipRepo := &stubDealershipRepo{dealership: openDealership()}
+	// vehicle exists but belongs to a different customer
+	vehicleRepo := &stubVehicleRepo{vehicle: &domain.Vehicle{ID: "v-001", CustomerID: "c-OTHER"}}
+	uc := newUC(dealershipRepo, &stubServiceDefRepo{}, vehicleRepo, &stubAppointmentRepo{}, cache)
+
+	_, err := uc.BookAppointment(context.Background(), &usecase.AppoinmentBookingInput{
+		CustomerID:       "c-001",
+		DealershipID:     "d-001",
+		Services:         []string{"oil_change"},
+		DesiredStartTime: futureTime(9),
+		VehicleID:        "v-001",
+	})
+	if !errors.Is(err, usecase.ErrVehicleNotOwnedByCustomer) {
+		t.Errorf("want ErrVehicleNotOwnedByCustomer, got %v", err)
+	}
+}
+
 func TestBookAppointment_VehicleNotFound(t *testing.T) {
 	cache := &stubCache{service: oilChangeService(), hit: true}
 	dealershipRepo := &stubDealershipRepo{dealership: openDealership()}
@@ -776,6 +795,23 @@ func TestAvailableSlots_DealershipNotFound(t *testing.T) {
 	}
 }
 
+func TestAvailableSlots_VehicleNotOwnedByCustomer(t *testing.T) {
+	// vehicle exists but belongs to a different customer
+	uc := newUC(
+		&stubDealershipRepo{dealership: openDealership()},
+		&stubServiceDefRepo{},
+		&stubVehicleRepo{vehicle: &domain.Vehicle{ID: "v-001", CustomerID: "c-OTHER"}},
+		&stubAppointmentRepo{},
+		&stubCache{service: oilChangeService(), hit: true},
+	)
+	req := availableSlotsReq()
+	req.CustomerID = "c-001"
+	_, err := uc.AvailableSlots(context.Background(), req)
+	if !errors.Is(err, usecase.ErrVehicleNotOwnedByCustomer) {
+		t.Errorf("want ErrVehicleNotOwnedByCustomer, got %v", err)
+	}
+}
+
 func TestAvailableSlots_VehicleNotFound(t *testing.T) {
 	uc := newUC(
 		&stubDealershipRepo{dealership: openDealership()},
@@ -877,6 +913,81 @@ func TestBookAppointment_WeekendRejected(t *testing.T) {
 	}
 }
 
+// TestAvailableSlots_SlotRepoError verifies that a DB error from GetAvailableSlots
+// is propagated to the caller.
+func TestAvailableSlots_SlotRepoError(t *testing.T) {
+	repoErr := errors.New("db unavailable")
+	slotRepo := &configuredAvailabilityRepo{err: repoErr}
+	vehicleRepo := &stubVehicleRepo{vehicle: &domain.Vehicle{ID: "v-001"}}
+
+	uc := usecase.NewAppointmentBookingUseCase(
+		&stubDealershipRepo{dealership: openDealership()},
+		&stubServiceBayRepo{},
+		&stubTechnicianRepo{},
+		&stubServiceDefRepo{},
+		vehicleRepo,
+		&stubCache{service: oilChangeService(), hit: true},
+		slotRepo,
+		&stubAppointmentRepo{},
+	)
+
+	_, err := uc.AvailableSlots(context.Background(), availableSlotsReq())
+	if !errors.Is(err, repoErr) {
+		t.Errorf("want slot repo error propagated, got %v", err)
+	}
+}
+
+// TestAvailableSlots_FiltersNonWorkingDaySlots confirms that slots whose start
+// falls on a non-working day are removed by the per-slot filter even if they
+// satisfy the time-of-day constraint (the IsWorkingDay check in the filter loop).
+func TestAvailableSlots_FiltersNonWorkingDaySlots(t *testing.T) {
+	// weekdayDealership only allows Mon–Fri
+	monday := time.Now().UTC()
+	for monday.Weekday() != time.Monday {
+		monday = monday.Add(24 * time.Hour)
+	}
+	monday = monday.Add(24 * time.Hour) // ensure it's in the future even when today is Monday
+	saturday := monday.Add(5 * 24 * time.Hour)
+
+	mondaySlot := domain.AvailableSlot{
+		Start: time.Date(monday.Year(), monday.Month(), monday.Day(), 9, 0, 0, 0, time.UTC),
+		End:   time.Date(monday.Year(), monday.Month(), monday.Day(), 9, 30, 0, 0, time.UTC),
+	}
+	saturdaySlot := domain.AvailableSlot{
+		Start: time.Date(saturday.Year(), saturday.Month(), saturday.Day(), 9, 0, 0, 0, time.UTC),
+		End:   time.Date(saturday.Year(), saturday.Month(), saturday.Day(), 9, 30, 0, 0, time.UTC),
+	}
+
+	slotRepo := &configuredAvailabilityRepo{slots: []domain.AvailableSlot{mondaySlot, saturdaySlot}}
+	vehicleRepo := &stubVehicleRepo{vehicle: &domain.Vehicle{ID: "v-001"}}
+	desiredDate := mondaySlot.Start
+
+	uc := usecase.NewAppointmentBookingUseCase(
+		&stubDealershipRepo{dealership: weekdayDealership()},
+		&stubServiceBayRepo{},
+		&stubTechnicianRepo{},
+		&stubServiceDefRepo{},
+		vehicleRepo,
+		&stubCache{service: oilChangeService(), hit: true},
+		slotRepo,
+		&stubAppointmentRepo{},
+	)
+
+	req := &usecase.AvailableSlotsInput{
+		DealershipID: "d-001",
+		Services:     []string{"oil_change"},
+		VehicleID:    "v-001",
+		DesiredDate:  desiredDate,
+	}
+	out, err := uc.AvailableSlots(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(out.AvailableSlots) != 1 {
+		t.Errorf("want 1 slot (Saturday filtered), got %d", len(out.AvailableSlots))
+	}
+}
+
 func TestAvailableSlots_WeekendRejected(t *testing.T) {
 	uc := usecase.NewAppointmentBookingUseCase(
 		&stubDealershipRepo{dealership: weekdayDealership()},
@@ -893,6 +1004,212 @@ func TestAvailableSlots_WeekendRejected(t *testing.T) {
 	_, err := uc.AvailableSlots(context.Background(), req)
 	if !errors.Is(err, usecase.ErrSlotNotOnWorkingDay) {
 		t.Errorf("want ErrSlotNotOnWorkingDay, got %v", err)
+	}
+}
+
+// ─── ListAppointments stubs ───────────────────────────────────────────────────
+
+// listableAppointmentRepo overrides the List* methods on stubAppointmentRepo
+// so each query path can be configured independently.
+type listableAppointmentRepo struct {
+	stubAppointmentRepo
+	byCustomer      []domain.Appointment
+	byCustomerErr   error
+	byDealership    []domain.Appointment
+	byDealershipErr error
+	byBoth          []domain.Appointment
+	byBothErr       error
+}
+
+func (r *listableAppointmentRepo) ListAppointmentsByCustomer(_ context.Context, _ string) ([]domain.Appointment, error) {
+	return r.byCustomer, r.byCustomerErr
+}
+func (r *listableAppointmentRepo) ListAppointmentsByDealership(_ context.Context, _ string) ([]domain.Appointment, error) {
+	return r.byDealership, r.byDealershipErr
+}
+func (r *listableAppointmentRepo) ListAppointmentsByCustomerAndDealership(_ context.Context, _, _ string) ([]domain.Appointment, error) {
+	return r.byBoth, r.byBothErr
+}
+
+func newListUC(apptRepo *listableAppointmentRepo) *usecase.AppoinmentBookingUseCase {
+	return usecase.NewAppointmentBookingUseCase(
+		&stubDealershipRepo{},
+		&stubServiceBayRepo{},
+		&stubTechnicianRepo{},
+		&stubServiceDefRepo{},
+		&stubVehicleRepo{},
+		&stubCache{},
+		&stubAvailabilityRepo{},
+		apptRepo,
+	)
+}
+
+// sampleAppointment returns a fully-populated domain.Appointment for field-mapping tests.
+func sampleAppointment(id, customerID, vehicleID, dealershipID string) domain.Appointment {
+	start := futureTime(10)
+	return domain.Appointment{
+		ID:           id,
+		CustomerID:   customerID,
+		VehicleID:    vehicleID,
+		DealershipID: dealershipID,
+		Services: []*domain.ServiceSnapshot{
+			{ServiceID: "svc-oil", Name: "Oil Change", EstimatedMinutes: 30, Price: 29.99},
+		},
+		Status:    domain.AppointmentStatusPending,
+		StartTime: start,
+		EndTime:   start.Add(30 * time.Minute),
+		Notes:     "check brakes",
+		CreatedAt: start.Add(-24 * time.Hour),
+	}
+}
+
+// ─── ListAppointments tests ───────────────────────────────────────────────────
+
+func TestListAppointments_NoFilter_ReturnsError(t *testing.T) {
+	uc := newListUC(&listableAppointmentRepo{})
+	_, err := uc.ListAppointments(context.Background(), &usecase.ListAppointmentsInput{})
+	if !errors.Is(err, usecase.ErrListFilterRequired) {
+		t.Errorf("want ErrListFilterRequired, got %v", err)
+	}
+}
+
+func TestListAppointments_ByCustomer_ReturnsAppointments(t *testing.T) {
+	appts := []domain.Appointment{
+		sampleAppointment("appt-1", "c-001", "v-001", "d-001"),
+		sampleAppointment("appt-2", "c-001", "v-002", "d-002"),
+	}
+	uc := newListUC(&listableAppointmentRepo{byCustomer: appts})
+
+	out, err := uc.ListAppointments(context.Background(), &usecase.ListAppointmentsInput{CustomerID: "c-001"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(out.Appointments) != 2 {
+		t.Errorf("want 2 appointments, got %d", len(out.Appointments))
+	}
+}
+
+func TestListAppointments_ByDealership_ReturnsAppointments(t *testing.T) {
+	appts := []domain.Appointment{
+		sampleAppointment("appt-3", "c-001", "v-001", "d-001"),
+	}
+	uc := newListUC(&listableAppointmentRepo{byDealership: appts})
+
+	out, err := uc.ListAppointments(context.Background(), &usecase.ListAppointmentsInput{DealershipID: "d-001"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(out.Appointments) != 1 {
+		t.Errorf("want 1 appointment, got %d", len(out.Appointments))
+	}
+}
+
+func TestListAppointments_ByCustomerAndDealership_ReturnsAppointments(t *testing.T) {
+	appts := []domain.Appointment{
+		sampleAppointment("appt-4", "c-001", "v-001", "d-001"),
+		sampleAppointment("appt-5", "c-001", "v-003", "d-001"),
+	}
+	uc := newListUC(&listableAppointmentRepo{byBoth: appts})
+
+	out, err := uc.ListAppointments(context.Background(), &usecase.ListAppointmentsInput{
+		CustomerID:   "c-001",
+		DealershipID: "d-001",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(out.Appointments) != 2 {
+		t.Errorf("want 2 appointments, got %d", len(out.Appointments))
+	}
+}
+
+func TestListAppointments_RepoError_ByCustomer(t *testing.T) {
+	repoErr := errors.New("db failure")
+	uc := newListUC(&listableAppointmentRepo{byCustomerErr: repoErr})
+
+	_, err := uc.ListAppointments(context.Background(), &usecase.ListAppointmentsInput{CustomerID: "c-001"})
+	if !errors.Is(err, repoErr) {
+		t.Errorf("want repo error propagated, got %v", err)
+	}
+}
+
+func TestListAppointments_RepoError_ByDealership(t *testing.T) {
+	repoErr := errors.New("db failure")
+	uc := newListUC(&listableAppointmentRepo{byDealershipErr: repoErr})
+
+	_, err := uc.ListAppointments(context.Background(), &usecase.ListAppointmentsInput{DealershipID: "d-001"})
+	if !errors.Is(err, repoErr) {
+		t.Errorf("want repo error propagated, got %v", err)
+	}
+}
+
+func TestListAppointments_RepoError_ByCustomerAndDealership(t *testing.T) {
+	repoErr := errors.New("db failure")
+	uc := newListUC(&listableAppointmentRepo{byBothErr: repoErr})
+
+	_, err := uc.ListAppointments(context.Background(), &usecase.ListAppointmentsInput{
+		CustomerID:   "c-001",
+		DealershipID: "d-001",
+	})
+	if !errors.Is(err, repoErr) {
+		t.Errorf("want repo error propagated, got %v", err)
+	}
+}
+
+func TestListAppointments_EmptyResult_ReturnsEmptySlice(t *testing.T) {
+	uc := newListUC(&listableAppointmentRepo{byCustomer: []domain.Appointment{}})
+
+	out, err := uc.ListAppointments(context.Background(), &usecase.ListAppointmentsInput{CustomerID: "c-001"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(out.Appointments) != 0 {
+		t.Errorf("want 0 appointments, got %d", len(out.Appointments))
+	}
+}
+
+func TestListAppointments_FieldMapping(t *testing.T) {
+	src := sampleAppointment("appt-99", "c-001", "v-001", "d-001")
+	uc := newListUC(&listableAppointmentRepo{byCustomer: []domain.Appointment{src}})
+
+	out, err := uc.ListAppointments(context.Background(), &usecase.ListAppointmentsInput{CustomerID: "c-001"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(out.Appointments) != 1 {
+		t.Fatalf("want 1 appointment, got %d", len(out.Appointments))
+	}
+	got := out.Appointments[0]
+
+	if got.ID != src.ID {
+		t.Errorf("ID: got %q, want %q", got.ID, src.ID)
+	}
+	if got.CustomerID != src.CustomerID {
+		t.Errorf("CustomerID: got %q, want %q", got.CustomerID, src.CustomerID)
+	}
+	if got.VehicleID != src.VehicleID {
+		t.Errorf("VehicleID: got %q, want %q", got.VehicleID, src.VehicleID)
+	}
+	if got.DealershipID != src.DealershipID {
+		t.Errorf("DealershipID: got %q, want %q", got.DealershipID, src.DealershipID)
+	}
+	if got.Status != string(src.Status) {
+		t.Errorf("Status: got %q, want %q", got.Status, string(src.Status))
+	}
+	if !got.StartTime.Equal(src.StartTime) {
+		t.Errorf("StartTime: got %v, want %v", got.StartTime, src.StartTime)
+	}
+	if !got.EndTime.Equal(src.EndTime) {
+		t.Errorf("EndTime: got %v, want %v", got.EndTime, src.EndTime)
+	}
+	if got.Notes != src.Notes {
+		t.Errorf("Notes: got %q, want %q", got.Notes, src.Notes)
+	}
+	if !got.CreatedAt.Equal(src.CreatedAt) {
+		t.Errorf("CreatedAt: got %v, want %v", got.CreatedAt, src.CreatedAt)
+	}
+	if len(got.Services) != len(src.Services) {
+		t.Errorf("Services length: got %d, want %d", len(got.Services), len(src.Services))
 	}
 }
 
