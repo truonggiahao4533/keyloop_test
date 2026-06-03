@@ -4,14 +4,10 @@ import (
 	"context"
 	"errors"
 	"keyloop-test/internal/domain"
+	"keyloop-test/internal/port"
 	"keyloop-test/internal/repository"
 	"log/slog"
 	"time"
-
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const serviceCacheTTL = 5 * time.Minute
@@ -48,10 +44,10 @@ type AppoinmentBookingUseCase struct {
 	technicianRepo       repository.TechnicianRepository
 	serviceRepo          repository.ServiceRepository
 	vehicleRepo          repository.VehicleRepository
-	serviceCache         ServiceCacheProvider
+	serviceCache         port.ServiceCacheProvider
 	availabilitySlotRepo repository.AvailabilitySlotRepository
 	appointmentRepo      repository.AppointmentRepository
-	tracer               trace.Tracer
+	tracer               port.Tracer
 }
 
 // NewAppointmentBookingUseCase creates a new instance of AppoinmentBookingUseCase.
@@ -61,9 +57,10 @@ func NewAppointmentBookingUseCase(
 	technicianRepo repository.TechnicianRepository,
 	serviceRepo repository.ServiceRepository,
 	vehicleRepo repository.VehicleRepository,
-	serviceCache ServiceCacheProvider,
+	serviceCache port.ServiceCacheProvider,
 	availabilitySlotRepo repository.AvailabilitySlotRepository,
 	appointmentRepo repository.AppointmentRepository,
+	tracer port.Tracer,
 ) *AppoinmentBookingUseCase {
 	return &AppoinmentBookingUseCase{
 		dealershipRepo:       dealershipRepo,
@@ -74,7 +71,7 @@ func NewAppointmentBookingUseCase(
 		serviceCache:         serviceCache,
 		availabilitySlotRepo: availabilitySlotRepo,
 		appointmentRepo:      appointmentRepo,
-		tracer:               otel.Tracer("keyloop-test/usecase"),
+		tracer:               tracer,
 	}
 }
 
@@ -110,16 +107,14 @@ func (uc *AppoinmentBookingUseCase) WarmCache(ctx context.Context) error {
 
 func (uc *AppoinmentBookingUseCase) BookAppointment(ctx context.Context, req *AppoinmentBookingInput) (_ *AppoinmentBookingOutput, err error) {
 	ctx, span := uc.tracer.Start(ctx, "BookAppointment",
-		trace.WithAttributes(
-			attribute.String("dealership.id", req.DealershipID),
-			attribute.String("vehicle.id", req.VehicleID),
-			attribute.Int("services.count", len(req.Services)),
-		),
+		port.StringAttr("dealership.id", req.DealershipID),
+		port.StringAttr("vehicle.id", req.VehicleID),
+		port.IntAttr("services.count", len(req.Services)),
 	)
 	defer func() {
 		if err != nil {
 			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
+			span.SetErrorStatus(err.Error())
 		}
 		span.End()
 	}()
@@ -144,7 +139,7 @@ func (uc *AppoinmentBookingUseCase) BookAppointment(ctx context.Context, req *Ap
 	dealership, repoErr := uc.dealershipRepo.GetDealership(rCtx, req.DealershipID)
 	if repoErr != nil {
 		rSpan.RecordError(repoErr)
-		rSpan.SetStatus(codes.Error, repoErr.Error())
+		rSpan.SetErrorStatus(repoErr.Error())
 	}
 	rSpan.End()
 	if repoErr != nil {
@@ -161,7 +156,7 @@ func (uc *AppoinmentBookingUseCase) BookAppointment(ctx context.Context, req *Ap
 	vehicle, repoErr := uc.vehicleRepo.GetVehicle(rCtx, req.VehicleID)
 	if repoErr != nil {
 		rSpan.RecordError(repoErr)
-		rSpan.SetStatus(codes.Error, repoErr.Error())
+		rSpan.SetErrorStatus(repoErr.Error())
 	}
 	rSpan.End()
 	if repoErr != nil {
@@ -184,7 +179,7 @@ func (uc *AppoinmentBookingUseCase) BookAppointment(ctx context.Context, req *Ap
 	})
 	if err != nil {
 		rSpan.RecordError(err)
-		rSpan.SetStatus(codes.Error, err.Error())
+		rSpan.SetErrorStatus(err.Error())
 	}
 	rSpan.End()
 	if err != nil {
@@ -225,17 +220,15 @@ const timeSlotLookupWindow = 7 * 24 * time.Hour
 
 func (uc *AppoinmentBookingUseCase) AvailableSlots(ctx context.Context, req *AvailableSlotsInput) (_ *AvailableSlotsOutput, err error) {
 	ctx, span := uc.tracer.Start(ctx, "AvailableSlots",
-		trace.WithAttributes(
-			attribute.String("dealership.id", req.DealershipID),
-			attribute.String("vehicle.id", req.VehicleID),
-			attribute.Int("services.count", len(req.Services)),
-			attribute.String("desired_date", req.DesiredDate.Format(time.DateOnly)),
-		),
+		port.StringAttr("dealership.id", req.DealershipID),
+		port.StringAttr("vehicle.id", req.VehicleID),
+		port.IntAttr("services.count", len(req.Services)),
+		port.StringAttr("desired_date", req.DesiredDate.Format(time.DateOnly)),
 	)
 	defer func() {
 		if err != nil {
 			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
+			span.SetErrorStatus(err.Error())
 		}
 		span.End()
 	}()
@@ -259,7 +252,7 @@ func (uc *AppoinmentBookingUseCase) AvailableSlots(ctx context.Context, req *Ava
 	dealership, repoErr := uc.dealershipRepo.GetDealership(rCtx, req.DealershipID)
 	if repoErr != nil {
 		rSpan.RecordError(repoErr)
-		rSpan.SetStatus(codes.Error, repoErr.Error())
+		rSpan.SetErrorStatus(repoErr.Error())
 	}
 	rSpan.End()
 	if repoErr != nil {
@@ -273,7 +266,7 @@ func (uc *AppoinmentBookingUseCase) AvailableSlots(ctx context.Context, req *Ava
 	vehicle, repoErr := uc.vehicleRepo.GetVehicle(rCtx, req.VehicleID)
 	if repoErr != nil {
 		rSpan.RecordError(repoErr)
-		rSpan.SetStatus(codes.Error, repoErr.Error())
+		rSpan.SetErrorStatus(repoErr.Error())
 	}
 	rSpan.End()
 	if repoErr != nil {
@@ -287,7 +280,7 @@ func (uc *AppoinmentBookingUseCase) AvailableSlots(ctx context.Context, req *Ava
 	rawSlots, err := uc.availabilitySlotRepo.GetAvailableSlots(rCtx, req.DesiredDate, req.DesiredDate.Add(timeSlotLookupWindow), req.DealershipID, totalDuration, req.Services)
 	if err != nil {
 		rSpan.RecordError(err)
-		rSpan.SetStatus(codes.Error, err.Error())
+		rSpan.SetErrorStatus(err.Error())
 	}
 	rSpan.End()
 	if err != nil {
@@ -317,7 +310,7 @@ func (uc *AppoinmentBookingUseCase) resolveServices(ctx context.Context, service
 			svc, err = uc.serviceRepo.GetService(rCtx, id)
 			if err != nil {
 				rSpan.RecordError(err)
-				rSpan.SetStatus(codes.Error, err.Error())
+				rSpan.SetErrorStatus(err.Error())
 				rSpan.End()
 				return nil, 0, domain.ErrServiceNotFound
 			}
@@ -359,15 +352,13 @@ type ListAppointmentsOutput struct {
 
 func (uc *AppoinmentBookingUseCase) ListAppointments(ctx context.Context, req *ListAppointmentsInput) (_ *ListAppointmentsOutput, err error) {
 	ctx, span := uc.tracer.Start(ctx, "ListAppointments",
-		trace.WithAttributes(
-			attribute.String("customer.id", req.CustomerID),
-			attribute.String("dealership.id", req.DealershipID),
-		),
+		port.StringAttr("customer.id", req.CustomerID),
+		port.StringAttr("dealership.id", req.DealershipID),
 	)
 	defer func() {
 		if err != nil {
 			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
+			span.SetErrorStatus(err.Error())
 		}
 		span.End()
 	}()
@@ -383,7 +374,7 @@ func (uc *AppoinmentBookingUseCase) ListAppointments(ctx context.Context, req *L
 		appts, err = uc.appointmentRepo.ListAppointmentsByCustomerAndDealership(rCtx, req.CustomerID, req.DealershipID)
 		if err != nil {
 			rSpan.RecordError(err)
-			rSpan.SetStatus(codes.Error, err.Error())
+			rSpan.SetErrorStatus(err.Error())
 		}
 		rSpan.End()
 	case req.CustomerID != "":
@@ -391,7 +382,7 @@ func (uc *AppoinmentBookingUseCase) ListAppointments(ctx context.Context, req *L
 		appts, err = uc.appointmentRepo.ListAppointmentsByCustomer(rCtx, req.CustomerID)
 		if err != nil {
 			rSpan.RecordError(err)
-			rSpan.SetStatus(codes.Error, err.Error())
+			rSpan.SetErrorStatus(err.Error())
 		}
 		rSpan.End()
 	case req.DealershipID != "":
@@ -399,7 +390,7 @@ func (uc *AppoinmentBookingUseCase) ListAppointments(ctx context.Context, req *L
 		appts, err = uc.appointmentRepo.ListAppointmentsByDealership(rCtx, req.DealershipID)
 		if err != nil {
 			rSpan.RecordError(err)
-			rSpan.SetStatus(codes.Error, err.Error())
+			rSpan.SetErrorStatus(err.Error())
 		}
 		rSpan.End()
 	}
@@ -428,12 +419,12 @@ func (uc *AppoinmentBookingUseCase) ListAppointments(ctx context.Context, req *L
 
 func (uc *AppoinmentBookingUseCase) SoftDeleteAppointment(ctx context.Context, id string) (err error) {
 	ctx, span := uc.tracer.Start(ctx, "SoftDeleteAppointment",
-		trace.WithAttributes(attribute.String("appointment.id", id)),
+		port.StringAttr("appointment.id", id),
 	)
 	defer func() {
 		if err != nil {
 			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
+			span.SetErrorStatus(err.Error())
 		}
 		span.End()
 	}()
@@ -443,7 +434,7 @@ func (uc *AppoinmentBookingUseCase) SoftDeleteAppointment(ctx context.Context, i
 	appt, repoErr := uc.appointmentRepo.GetAppointment(rCtx, id)
 	if repoErr != nil {
 		rSpan.RecordError(repoErr)
-		rSpan.SetStatus(codes.Error, repoErr.Error())
+		rSpan.SetErrorStatus(repoErr.Error())
 	}
 	rSpan.End()
 	if repoErr != nil {
@@ -457,7 +448,7 @@ func (uc *AppoinmentBookingUseCase) SoftDeleteAppointment(ctx context.Context, i
 	err = uc.appointmentRepo.DeleteAppointment(rCtx, id)
 	if err != nil {
 		rSpan.RecordError(err)
-		rSpan.SetStatus(codes.Error, err.Error())
+		rSpan.SetErrorStatus(err.Error())
 	}
 	rSpan.End()
 	if err == nil {
@@ -474,12 +465,12 @@ type UpdateAppointmentInput struct {
 
 func (uc *AppoinmentBookingUseCase) UpdateAppointment(ctx context.Context, req *UpdateAppointmentInput) (_ *AppointmentItem, err error) {
 	ctx, span := uc.tracer.Start(ctx, "UpdateAppointment",
-		trace.WithAttributes(attribute.String("appointment.id", req.AppointmentID)),
+		port.StringAttr("appointment.id", req.AppointmentID),
 	)
 	defer func() {
 		if err != nil {
 			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
+			span.SetErrorStatus(err.Error())
 		}
 		span.End()
 	}()
@@ -489,7 +480,7 @@ func (uc *AppoinmentBookingUseCase) UpdateAppointment(ctx context.Context, req *
 	current, repoErr := uc.appointmentRepo.GetAppointment(rCtx, req.AppointmentID)
 	if repoErr != nil {
 		rSpan.RecordError(repoErr)
-		rSpan.SetStatus(codes.Error, repoErr.Error())
+		rSpan.SetErrorStatus(repoErr.Error())
 	}
 	rSpan.End()
 	if repoErr != nil {
@@ -522,7 +513,7 @@ func (uc *AppoinmentBookingUseCase) UpdateAppointment(ctx context.Context, req *
 	updated, err := uc.appointmentRepo.UpdateAppointment(rCtx, req.AppointmentID, newStatus, newNotes)
 	if err != nil {
 		rSpan.RecordError(err)
-		rSpan.SetStatus(codes.Error, err.Error())
+		rSpan.SetErrorStatus(err.Error())
 	}
 	rSpan.End()
 	if err != nil {

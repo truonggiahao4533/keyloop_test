@@ -74,6 +74,10 @@ POSTGRES_PASSWORD=postgres
 POSTGRES_DB=keyloop
 
 REDIS_ADDR=redis:6379
+
+# OpenTelemetry — used by make up-observe (see Observability section)
+OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://loki:3100/otlp/v1/logs
 ```
 
 > When running locally (outside Docker), set `POSTGRES_HOST=localhost` and `REDIS_ADDR=localhost:6379`, and note the host-mapped ports (`5433` for Postgres, `6380` for Redis).
@@ -246,40 +250,59 @@ make test-integration
 
 ## Observability
 
+The application ships a full **Grafana LGTM stack** — all three observability pillars visible in a single Grafana UI.
+
+| Pillar | Backend | How it gets there |
+|--------|---------|-------------------|
+| Traces | [Grafana Tempo](https://grafana.com/oss/tempo/) | OTLP gRPC (`OTEL_EXPORTER_OTLP_ENDPOINT`) |
+| Logs | [Grafana Loki](https://grafana.com/oss/loki/) | OTLP HTTP (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`) via `otelslog` bridge |
+| Metrics | Prometheus | Scraped from `/metrics` (OTel Prometheus exporter) |
+
 The application is instrumented with **OpenTelemetry** across three layers:
 
 | Layer | Instrumentation |
 |-------|----------------|
-| HTTP | `otelgin` middleware creates a root span per request |
-| Usecase | Manual child spans per function (`BookAppointment`, `AvailableSlots`, `ListAppointments`) |
-| Repository calls | Grandchild spans wrap each DB call (`repo.GetDealership`, `repo.CreateAppointment`, etc.) |
+| HTTP | `otelgin` middleware — root span per request, trace context propagated |
+| Usecase | Manual child spans per method (`BookAppointment`, `GetAvailableSlots`, `ListAppointments`) |
+| Repository | Grandchild spans wrap each DB call (`repo.GetDealership`, `repo.CreateAppointment`, etc.) |
 
-**Current exporter:** stdout (`stdouttrace` with pretty-print). Completed spans are printed as JSON to the application's stdout after each request. View them with:
+Structured logs use `slog.InfoContext`/`slog.ErrorContext` with the request context, so every log record automatically carries the `trace_id` and `span_id` of the active span — enabling click-through from a Loki log line directly to the matching Tempo trace.
+
+### Starting the observability stack
 
 ```bash
-make watch | jq .
+make up-observe
 ```
 
-**Switching to a visual UI (Jaeger):**
+This starts all services **plus** Tempo, Loki, Prometheus, and Grafana (via the `observability` Compose profile).
 
-1. Start Jaeger:
-   ```bash
-   docker run -d -p 16686:16686 -p 4317:4317 jaegertracing/all-in-one
-   ```
+Open Grafana at **http://localhost:3000** — datasources (Prometheus, Tempo, Loki) are pre-provisioned, no manual setup required.
 
-2. In [infrastructure/telemetry/otel.go](infrastructure/telemetry/otel.go), replace the stdout exporter with OTLP:
-   ```go
-   // swap these two imports:
-   // "go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
-   "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+### Stopping the observability stack
 
-   traceExporter, err := otlptracegrpc.New(ctx,
-       otlptracegrpc.WithEndpoint("localhost:4317"),
-       otlptracegrpc.WithInsecure(),
-   )
-   ```
+```bash
+make down-observe
+```
 
-3. Open `http://localhost:16686` to browse traces.
+### Using Grafana
+
+| What you want | Where to look |
+|---------------|---------------|
+| Traces | Explore → Tempo datasource → search by service `keyloop-api` |
+| Logs | Explore → Loki datasource → label filter `service_name = keyloop-api` |
+| Metrics | Explore → Prometheus datasource, or Dashboards |
+| Jump from log → trace | Click the **TraceID** link in any Loki log line detail panel |
+| Jump from trace → logs | In a Tempo trace view, click **Logs for this span** |
+
+### Viewing structured log fields
+
+Loki stores structured key-value pairs (e.g. `dealership_id`, `vehicle_id`, `appointment_id`) as attributes on the log record, not embedded in the log body. To surface them:
+
+- **Expand a log line** in Grafana Explore — all attributes appear in the detail panel.
+- **Query with pipeline** to filter or display fields inline:
+  ```logql
+  {service_name="keyloop-api"} | logfmt
+  ```
 
 ---
 
@@ -317,7 +340,7 @@ The service cache uses a fixed TTL with no active invalidation. If a service's `
 ### Observability
 
 **Business metrics**
-The OTel meter provider is initialised but no metrics are recorded. Counters for bookings attempted/succeeded/failed and a histogram for slot-lookup latency would enable alerting on booking success rate regressions.
+The OTel Prometheus exporter is wired and `/metrics` is scraped, but no application-level metrics are recorded yet. Counters for bookings attempted/succeeded/failed and a histogram for slot-lookup latency would enable alerting on booking success rate regressions.
 
 ---
 

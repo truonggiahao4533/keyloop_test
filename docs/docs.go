@@ -103,6 +103,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/httpHandler.errorResponse"
                         }
                     },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpHandler.errorResponse"
+                        }
+                    },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {

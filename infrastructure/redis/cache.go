@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -15,6 +16,9 @@ func NewRedisClient() *redis.Client {
 		addr = "localhost:6379"
 	}
 	client := redis.NewClient(&redis.Options{Addr: addr})
+	if err := redisotel.InstrumentTracing(client); err != nil {
+		slog.Warn("redis otel tracing unavailable", "error", err)
+	}
 	if err := client.Ping(context.Background()).Err(); err != nil {
 		slog.Warn("redis ping failed, cache unavailable", "error", err)
 	}

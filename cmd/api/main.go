@@ -19,7 +19,7 @@ import (
 	postgrerepository "keyloop-test/infrastructure/postgresql/postgre-repository"
 	rediscache "keyloop-test/infrastructure/redis"
 	"keyloop-test/infrastructure/telemetry"
-	httpHandler "keyloop-test/internal/adapter/http"
+	httpHandler "keyloop-test/infrastructure/http"
 	"keyloop-test/internal/usecase"
 
 	"github.com/gin-gonic/gin"
@@ -82,6 +82,7 @@ func main() {
 	appointmentRepo := postgrerepository.NewAppointmentRepository(db)
 
 	// Initialize Use Cases
+	usecaseTracer := telemetry.NewTracer("keyloop-test/usecase")
 	appointmentUC := usecase.NewAppointmentBookingUseCase(
 		dealershipRepo,
 		serviceBayRepo,
@@ -91,6 +92,7 @@ func main() {
 		serviceCache,
 		availabilitySlotRepo,
 		appointmentRepo,
+		usecaseTracer,
 	)
 
 	// Warm up service cache from DB at startup

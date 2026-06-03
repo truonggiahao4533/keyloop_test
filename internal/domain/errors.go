@@ -14,7 +14,7 @@ var (
 var (
 	ErrNoAvailableBay        = errors.New("no available service bay for the requested time")
 	ErrNoAvailableTechnician = errors.New("no qualified technician available for the requested time")
-	ErrNoAvailableResources  = errors.New("no service bay or qualified technician is available for the requested time slot")
+	ErrNoAvailableResources  = errors.New("slot taken, please choose another slot")
 )
 
 // Entity not found errors

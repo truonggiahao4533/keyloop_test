@@ -90,6 +90,7 @@ type errorResponse struct {
 // @Success      201   {object}  bookAppointmentResponse
 // @Failure      400   {object}  errorResponse
 // @Failure      404   {object}  errorResponse
+// @Failure      409   {object}  errorResponse
 // @Failure      422   {object}  errorResponse
 // @Failure      500   {object}  errorResponse
 // @Router       /api/v1/appointments [post]
@@ -105,7 +106,6 @@ func (h *AppointmentHandler) BookAppointment(c *gin.Context) {
 		span.End()
 	}()
 
-	
 	var req bookAppointmentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -270,16 +270,16 @@ type serviceSnapshotJSON struct {
 }
 
 type appointmentJSON struct {
-	ID           string               `json:"id"            example:"f1a2b3c4-d5e6-7890-abcd-ef1234567890"`
-	CustomerID   string               `json:"customer_id"   example:"c1a2b3c4-d5e6-7890-abcd-ef1234567890"`
-	VehicleID    string               `json:"vehicle_id"    example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`
-	DealershipID string               `json:"dealership_id" example:"d1e2f3a4-b5c6-7890-abcd-ef1234567890"`
+	ID           string                `json:"id"            example:"f1a2b3c4-d5e6-7890-abcd-ef1234567890"`
+	CustomerID   string                `json:"customer_id"   example:"c1a2b3c4-d5e6-7890-abcd-ef1234567890"`
+	VehicleID    string                `json:"vehicle_id"    example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`
+	DealershipID string                `json:"dealership_id" example:"d1e2f3a4-b5c6-7890-abcd-ef1234567890"`
 	Services     []serviceSnapshotJSON `json:"services"`
-	Status       string               `json:"status"        example:"pending"`
-	StartTime    string               `json:"start_time"    example:"2025-01-15T09:00:00Z"`
-	EndTime      string               `json:"end_time"      example:"2025-01-15T10:15:00Z"`
-	Notes        string               `json:"notes"         example:""`
-	CreatedAt    string               `json:"created_at"    example:"2025-01-10T08:00:00Z"`
+	Status       string                `json:"status"        example:"pending"`
+	StartTime    string                `json:"start_time"    example:"2025-01-15T09:00:00Z"`
+	EndTime      string                `json:"end_time"      example:"2025-01-15T10:15:00Z"`
+	Notes        string                `json:"notes"         example:""`
+	CreatedAt    string                `json:"created_at"    example:"2025-01-10T08:00:00Z"`
 }
 
 type listAppointmentsResponse struct {
@@ -518,15 +518,15 @@ func appointmentErrorStatus(err error) int {
 		errors.Is(err, usecase.ErrAppointmentNotFound),
 		errors.Is(err, domain.ErrServiceNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, domain.ErrTimeSlotConflict):
+	case errors.Is(err, domain.ErrTimeSlotConflict),
+		errors.Is(err, domain.ErrNoAvailableResources):
 		return http.StatusConflict
 	case errors.Is(err, usecase.ErrDesiredDateInPast),
 		errors.Is(err, usecase.ErrStartTimeInPast),
 		errors.Is(err, usecase.ErrSlotOutsideWorkingHours),
 		errors.Is(err, usecase.ErrSlotNotOnWorkingDay),
 		errors.Is(err, usecase.ErrInvalidStatusTransition),
-		errors.Is(err, usecase.ErrCannotDeleteAppointment),
-		errors.Is(err, domain.ErrNoAvailableResources):
+		errors.Is(err, usecase.ErrCannotDeleteAppointment):
 		return http.StatusUnprocessableEntity
 	default:
 		return http.StatusInternalServerError
