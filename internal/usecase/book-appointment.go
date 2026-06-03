@@ -3,9 +3,9 @@ package usecase
 import (
 	"context"
 	"errors"
-	"fmt"
 	"keyloop-test/internal/domain"
 	"keyloop-test/internal/repository"
+	"log/slog"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -124,6 +124,13 @@ func (uc *AppoinmentBookingUseCase) BookAppointment(ctx context.Context, req *Ap
 		span.End()
 	}()
 
+	slog.InfoContext(ctx, "booking appointment",
+		"dealership_id", req.DealershipID,
+		"vehicle_id", req.VehicleID,
+		"desired_start_time", req.DesiredStartTime,
+		"service_count", len(req.Services),
+	)
+
 	if req.DesiredStartTime.Before(time.Now()) {
 		return nil, ErrDesiredDateInPast
 	}
@@ -184,6 +191,12 @@ func (uc *AppoinmentBookingUseCase) BookAppointment(ctx context.Context, req *Ap
 		return nil, err
 	}
 
+	slog.InfoContext(ctx, "appointment created",
+		"appointment_id", appt.ID,
+		"start_time", appt.StartTime,
+		"end_time", appt.EndTime,
+		"duration_minutes", int(appt.Duration().Minutes()),
+	)
 	return &AppoinmentBookingOutput{
 		AppointmentID:   appt.ID,
 		DurationMinutes: int(appt.Duration().Minutes()),
@@ -226,6 +239,12 @@ func (uc *AppoinmentBookingUseCase) AvailableSlots(ctx context.Context, req *Ava
 		}
 		span.End()
 	}()
+
+	slog.InfoContext(ctx, "finding available slots",
+		"dealership_id", req.DealershipID,
+		"desired_date", req.DesiredDate.Format(time.DateOnly),
+		"service_count", len(req.Services),
+	)
 
 	if req.DesiredDate.Before(time.Now()) {
 		return nil, ErrDesiredDateInPast
@@ -282,6 +301,7 @@ func (uc *AppoinmentBookingUseCase) AvailableSlots(ctx context.Context, req *Ava
 		}
 	}
 
+	slog.InfoContext(ctx, "available slots computed", "count", len(filtered))
 	return &AvailableSlotsOutput{AvailableSlots: filtered}, nil
 }
 
@@ -299,7 +319,7 @@ func (uc *AppoinmentBookingUseCase) resolveServices(ctx context.Context, service
 				rSpan.RecordError(err)
 				rSpan.SetStatus(codes.Error, err.Error())
 				rSpan.End()
-				return nil, 0, fmt.Errorf("service %s not found", id)
+				return nil, 0, domain.ErrServiceNotFound
 			}
 			rSpan.End()
 			uc.serviceCache.SetService(ctx, id, svc, serviceCacheTTL)
@@ -352,6 +372,10 @@ func (uc *AppoinmentBookingUseCase) ListAppointments(ctx context.Context, req *L
 		span.End()
 	}()
 
+	slog.InfoContext(ctx, "listing appointments",
+		"customer_id", req.CustomerID,
+		"dealership_id", req.DealershipID,
+	)
 	var appts []domain.Appointment
 	switch {
 	case req.CustomerID != "" && req.DealershipID != "":
@@ -398,6 +422,7 @@ func (uc *AppoinmentBookingUseCase) ListAppointments(ctx context.Context, req *L
 			CreatedAt:    a.CreatedAt,
 		}
 	}
+	slog.InfoContext(ctx, "appointments listed", "count", len(items))
 	return &ListAppointmentsOutput{Appointments: items}, nil
 }
 
@@ -413,6 +438,7 @@ func (uc *AppoinmentBookingUseCase) SoftDeleteAppointment(ctx context.Context, i
 		span.End()
 	}()
 
+	slog.InfoContext(ctx, "deleting appointment", "appointment_id", id)
 	rCtx, rSpan := uc.tracer.Start(ctx, "repo.GetAppointment")
 	appt, repoErr := uc.appointmentRepo.GetAppointment(rCtx, id)
 	if repoErr != nil {
@@ -434,6 +460,9 @@ func (uc *AppoinmentBookingUseCase) SoftDeleteAppointment(ctx context.Context, i
 		rSpan.SetStatus(codes.Error, err.Error())
 	}
 	rSpan.End()
+	if err == nil {
+		slog.InfoContext(ctx, "appointment deleted", "appointment_id", id)
+	}
 	return err
 }
 
@@ -455,6 +484,7 @@ func (uc *AppoinmentBookingUseCase) UpdateAppointment(ctx context.Context, req *
 		span.End()
 	}()
 
+	slog.InfoContext(ctx, "updating appointment", "appointment_id", req.AppointmentID)
 	rCtx, rSpan := uc.tracer.Start(ctx, "repo.GetAppointment")
 	current, repoErr := uc.appointmentRepo.GetAppointment(rCtx, req.AppointmentID)
 	if repoErr != nil {
@@ -475,6 +505,11 @@ func (uc *AppoinmentBookingUseCase) UpdateAppointment(ctx context.Context, req *
 		if _, ok := allowed[*req.Status]; !ok {
 			return nil, ErrInvalidStatusTransition
 		}
+		slog.InfoContext(ctx, "appointment status transition",
+			"appointment_id", req.AppointmentID,
+			"from", string(current.Status),
+			"to", string(*req.Status),
+		)
 		newStatus = *req.Status
 	}
 
@@ -494,6 +529,10 @@ func (uc *AppoinmentBookingUseCase) UpdateAppointment(ctx context.Context, req *
 		return nil, err
 	}
 
+	slog.InfoContext(ctx, "appointment updated",
+		"appointment_id", updated.ID,
+		"status", string(updated.Status),
+	)
 	return &AppointmentItem{
 		ID:           updated.ID,
 		CustomerID:   updated.CustomerID,

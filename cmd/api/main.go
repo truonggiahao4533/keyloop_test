@@ -25,11 +25,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	"go.opentelemetry.io/contrib/bridges/otelslog"
 )
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	godotenv.Load()
 
 	otelShutdown, err := telemetry.SetupOTel(ctx)
 	if err != nil {
@@ -41,7 +44,7 @@ func main() {
 		}
 	}()
 
-	godotenv.Load()
+	slog.SetDefault(slog.New(otelslog.NewHandler("keyloop-api")))
 
 	// Initialize Database
 	postgre_host := os.Getenv("POSTGRES_HOST")

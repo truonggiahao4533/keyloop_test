@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
@@ -25,6 +26,7 @@ func (r *Router) RegisterRoutes(g *gin.Engine) {
 		c.Redirect(http.StatusMovedPermanently, "/swagger/index.html")
 	})
 	g.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	g.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	v1 := g.Group("/api/v1")
 	{

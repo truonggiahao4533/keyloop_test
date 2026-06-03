@@ -2,6 +2,7 @@ package httpHandler
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -11,6 +12,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func isValidUUID(s string) bool {
@@ -34,11 +39,15 @@ func requireUUID(c *gin.Context, field, value string) (string, bool) {
 }
 
 type AppointmentHandler struct {
-	uc *usecase.AppoinmentBookingUseCase
+	uc     *usecase.AppoinmentBookingUseCase
+	tracer trace.Tracer
 }
 
 func NewAppointmentHandler(uc *usecase.AppoinmentBookingUseCase) *AppointmentHandler {
-	return &AppointmentHandler{uc: uc}
+	return &AppointmentHandler{
+		uc:     uc,
+		tracer: otel.Tracer("keyloop-test/handler"),
+	}
 }
 
 // Request / response types
@@ -85,6 +94,18 @@ type errorResponse struct {
 // @Failure      500   {object}  errorResponse
 // @Router       /api/v1/appointments [post]
 func (h *AppointmentHandler) BookAppointment(c *gin.Context) {
+	ctx, span := h.tracer.Start(c.Request.Context(), "handler.BookAppointment",
+		trace.WithAttributes(
+			semconv.HTTPRequestMethodKey.String(c.Request.Method),
+			semconv.HTTPRouteKey.String(c.FullPath()),
+		),
+	)
+	defer func() {
+		span.SetAttributes(semconv.HTTPResponseStatusCodeKey.Int(c.Writer.Status()))
+		span.End()
+	}()
+
+	
 	var req bookAppointmentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -110,7 +131,13 @@ func (h *AppointmentHandler) BookAppointment(c *gin.Context) {
 		}
 		serviceIDs = append(serviceIDs, id)
 	}
-	out, err := h.uc.BookAppointment(c.Request.Context(), &usecase.AppoinmentBookingInput{
+	slog.InfoContext(ctx, "booking appointment",
+		"dealership_id", dealershipID,
+		"vehicle_id", vehicleID,
+		"desired_start_time", req.DesiredStartTime,
+		"service_count", len(serviceIDs),
+	)
+	out, err := h.uc.BookAppointment(ctx, &usecase.AppoinmentBookingInput{
 		CustomerID:       customerID, //TODO: Replace with JWT token claim
 		DealershipID:     dealershipID,
 		VehicleID:        vehicleID,
@@ -118,10 +145,17 @@ func (h *AppointmentHandler) BookAppointment(c *gin.Context) {
 		DesiredStartTime: req.DesiredStartTime,
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		slog.ErrorContext(ctx, "book appointment failed", "error", err)
 		c.JSON(appointmentErrorStatus(err), gin.H{"error": err.Error()})
 		return
 	}
 
+	slog.InfoContext(ctx, "appointment booked",
+		"appointment_id", out.AppointmentID,
+		"duration_minutes", out.DurationMinutes,
+	)
 	c.JSON(http.StatusCreated, bookAppointmentResponse{
 		AppointmentID:   out.AppointmentID,
 		DurationMinutes: out.DurationMinutes,
@@ -147,6 +181,17 @@ func (h *AppointmentHandler) BookAppointment(c *gin.Context) {
 // @Failure      500  {object}  errorResponse
 // @Router       /api/v1/appointments/available-slots [get]
 func (h *AppointmentHandler) GetAvailableSlots(c *gin.Context) {
+	ctx, span := h.tracer.Start(c.Request.Context(), "handler.GetAvailableSlots",
+		trace.WithAttributes(
+			semconv.HTTPRequestMethodKey.String(c.Request.Method),
+			semconv.HTTPRouteKey.String(c.FullPath()),
+		),
+	)
+	defer func() {
+		span.SetAttributes(semconv.HTTPResponseStatusCodeKey.Int(c.Writer.Status()))
+		span.End()
+	}()
+
 	dealershipID, ok := requireUUID(c, "dealership_id", c.Query("dealership_id"))
 	if !ok {
 		return
@@ -183,7 +228,13 @@ func (h *AppointmentHandler) GetAvailableSlots(c *gin.Context) {
 		return
 	}
 
-	out, err := h.uc.AvailableSlots(c.Request.Context(), &usecase.AvailableSlotsInput{
+	slog.InfoContext(ctx, "getting available slots",
+		"dealership_id", dealershipID,
+		"vehicle_id", vehicleID,
+		"desired_time", desiredTime,
+		"service_count", len(serviceIDs),
+	)
+	out, err := h.uc.AvailableSlots(ctx, &usecase.AvailableSlotsInput{
 		CustomerID:   customerID,
 		DealershipID: dealershipID,
 		Services:     serviceIDs,
@@ -191,10 +242,14 @@ func (h *AppointmentHandler) GetAvailableSlots(c *gin.Context) {
 		DesiredDate:  desiredTime,
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		slog.ErrorContext(ctx, "get available slots failed", "error", err)
 		c.JSON(appointmentErrorStatus(err), gin.H{"error": err.Error()})
 		return
 	}
 
+	slog.InfoContext(ctx, "available slots returned", "count", len(out.AvailableSlots))
 	type slot struct {
 		Start string `json:"start"`
 		End   string `json:"end"`
@@ -244,6 +299,17 @@ type listAppointmentsResponse struct {
 // @Failure      500  {object}  errorResponse
 // @Router       /api/v1/appointments [get]
 func (h *AppointmentHandler) ListAppointments(c *gin.Context) {
+	ctx, span := h.tracer.Start(c.Request.Context(), "handler.ListAppointments",
+		trace.WithAttributes(
+			semconv.HTTPRequestMethodKey.String(c.Request.Method),
+			semconv.HTTPRouteKey.String(c.FullPath()),
+		),
+	)
+	defer func() {
+		span.SetAttributes(semconv.HTTPResponseStatusCodeKey.Int(c.Writer.Status()))
+		span.End()
+	}()
+
 	customerID := strings.TrimSpace(c.Query("customer_id"))
 	dealershipID := strings.TrimSpace(c.Query("dealership_id"))
 
@@ -260,11 +326,18 @@ func (h *AppointmentHandler) ListAppointments(c *gin.Context) {
 		return
 	}
 
-	out, err := h.uc.ListAppointments(c.Request.Context(), &usecase.ListAppointmentsInput{
+	slog.InfoContext(ctx, "listing appointments",
+		"customer_id", customerID,
+		"dealership_id", dealershipID,
+	)
+	out, err := h.uc.ListAppointments(ctx, &usecase.ListAppointmentsInput{
 		CustomerID:   customerID,
 		DealershipID: dealershipID,
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		slog.ErrorContext(ctx, "list appointments failed", "error", err)
 		c.JSON(appointmentErrorStatus(err), gin.H{"error": err.Error()})
 		return
 	}
@@ -294,6 +367,7 @@ func (h *AppointmentHandler) ListAppointments(c *gin.Context) {
 		}
 	}
 
+	slog.InfoContext(ctx, "appointments listed", "count", len(items))
 	c.JSON(http.StatusOK, listAppointmentsResponse{Appointments: items})
 }
 
@@ -311,14 +385,30 @@ func (h *AppointmentHandler) ListAppointments(c *gin.Context) {
 // @Failure      500  {object}  errorResponse
 // @Router       /api/v1/appointments/{id} [delete]
 func (h *AppointmentHandler) DeleteAppointment(c *gin.Context) {
+	ctx, span := h.tracer.Start(c.Request.Context(), "handler.DeleteAppointment",
+		trace.WithAttributes(
+			semconv.HTTPRequestMethodKey.String(c.Request.Method),
+			semconv.HTTPRouteKey.String(c.FullPath()),
+		),
+	)
+	defer func() {
+		span.SetAttributes(semconv.HTTPResponseStatusCodeKey.Int(c.Writer.Status()))
+		span.End()
+	}()
+
 	id, ok := requireUUID(c, "id", c.Param("id"))
 	if !ok {
 		return
 	}
-	if err := h.uc.SoftDeleteAppointment(c.Request.Context(), id); err != nil {
+	slog.InfoContext(ctx, "deleting appointment", "appointment_id", id)
+	if err := h.uc.SoftDeleteAppointment(ctx, id); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		slog.ErrorContext(ctx, "delete appointment failed", "appointment_id", id, "error", err)
 		c.JSON(appointmentErrorStatus(err), gin.H{"error": err.Error()})
 		return
 	}
+	slog.InfoContext(ctx, "appointment deleted", "appointment_id", id)
 	c.Status(http.StatusNoContent)
 }
 
@@ -343,6 +433,17 @@ type updateAppointmentRequest struct {
 // @Failure      500   {object}  errorResponse
 // @Router       /api/v1/appointments/{id} [patch]
 func (h *AppointmentHandler) UpdateAppointment(c *gin.Context) {
+	ctx, span := h.tracer.Start(c.Request.Context(), "handler.UpdateAppointment",
+		trace.WithAttributes(
+			semconv.HTTPRequestMethodKey.String(c.Request.Method),
+			semconv.HTTPRouteKey.String(c.FullPath()),
+		),
+	)
+	defer func() {
+		span.SetAttributes(semconv.HTTPResponseStatusCodeKey.Int(c.Writer.Status()))
+		span.End()
+	}()
+
 	id, ok := requireUUID(c, "id", c.Param("id"))
 	if !ok {
 		return
@@ -372,15 +473,20 @@ func (h *AppointmentHandler) UpdateAppointment(c *gin.Context) {
 		notesPtr = &trimmed
 	}
 
-	out, err := h.uc.UpdateAppointment(c.Request.Context(), &usecase.UpdateAppointmentInput{
+	slog.InfoContext(ctx, "updating appointment", "appointment_id", id)
+	out, err := h.uc.UpdateAppointment(ctx, &usecase.UpdateAppointmentInput{
 		AppointmentID: id,
 		Status:        statusPtr,
 		Notes:         notesPtr,
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		slog.ErrorContext(ctx, "update appointment failed", "appointment_id", id, "error", err)
 		c.JSON(appointmentErrorStatus(err), gin.H{"error": err.Error()})
 		return
 	}
+	slog.InfoContext(ctx, "appointment updated", "appointment_id", id, "status", out.Status)
 
 	snapshots := make([]serviceSnapshotJSON, len(out.Services))
 	for j, s := range out.Services {
@@ -409,7 +515,8 @@ func appointmentErrorStatus(err error) int {
 	switch {
 	case errors.Is(err, usecase.ErrDealershipNotFound),
 		errors.Is(err, usecase.ErrVehicleNotFound),
-		errors.Is(err, usecase.ErrAppointmentNotFound):
+		errors.Is(err, usecase.ErrAppointmentNotFound),
+		errors.Is(err, domain.ErrServiceNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, domain.ErrTimeSlotConflict):
 		return http.StatusConflict
@@ -418,7 +525,8 @@ func appointmentErrorStatus(err error) int {
 		errors.Is(err, usecase.ErrSlotOutsideWorkingHours),
 		errors.Is(err, usecase.ErrSlotNotOnWorkingDay),
 		errors.Is(err, usecase.ErrInvalidStatusTransition),
-		errors.Is(err, usecase.ErrCannotDeleteAppointment):
+		errors.Is(err, usecase.ErrCannotDeleteAppointment),
+		errors.Is(err, domain.ErrNoAvailableResources):
 		return http.StatusUnprocessableEntity
 	default:
 		return http.StatusInternalServerError

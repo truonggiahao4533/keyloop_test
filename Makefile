@@ -43,12 +43,20 @@ install-tools:
 	go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
 
 up:
-	docker compose -f docker-compose.yml --env-file .env up -d
+	docker compose --env-file .env up -d
+
+up-observe:
+	docker compose --env-file .env --profile observability up -d
+
+
 build:
 	docker build -f Dockerfile -t keyloop-test .
 
 down:
-	docker compose -f docker-compose.yml --env-file .env down
+	docker compose --env-file .env down
+
+down-observe:
+	docker compose --env-file .env --profile observability down
 
 watch:
 	docker logs -f keyloop-test-app

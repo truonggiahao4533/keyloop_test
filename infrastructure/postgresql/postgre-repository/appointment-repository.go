@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 
 	"keyloop-test/infrastructure/postgresql/sqlc"
 	"keyloop-test/internal/domain"
@@ -214,6 +215,9 @@ func (r *appointmentRepo) CreateAppointment(ctx context.Context, appt *domain.Ap
 	if err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == pgExclusionViolation {
 			return nil, domain.ErrTimeSlotConflict
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, domain.ErrNoAvailableResources
 		}
 		return nil, err
 	}

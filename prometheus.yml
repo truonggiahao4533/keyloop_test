@@ -1,0 +1,8 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'keyloop-api'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['keyloop-test-app:8081'] 

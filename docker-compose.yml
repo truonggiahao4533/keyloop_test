@@ -7,7 +7,6 @@ services:
       - "8081:8081"
     restart: unless-stopped
     environment:
-      POSTGRES_CONNECTION_STRING: ${POSTGRES_CONNECTION_STRING}
       PORT: ${PORT}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -15,6 +14,8 @@ services:
       POSTGRES_HOST: ${POSTGRES_HOST}
       POSTGRES_PORT: ${POSTGRES_PORT}
       POSTGRES_SCHEMA: ${POSTGRES_SCHEMA}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT}
       REDIS_ADDR: ${REDIS_ADDR}
     networks:
       - keyloop-test-network
@@ -76,11 +77,71 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
-  
+
+  # --- Observability (optional) ---
+
+  tempo:
+    image: grafana/tempo:latest
+    container_name: tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo.yaml
+      - tempo-data:/var/tempo
+    ports:
+      - "4317:4317"   # OTLP gRPC (traces)
+      - "3200:3200"   # Tempo HTTP API (Grafana datasource)
+    networks:
+      - keyloop-test-network
+    profiles:
+      - observability
+
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    ports:
+      - "3100:3100"
+    networks:
+      - keyloop-test-network
+    profiles:
+      - observability
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    networks:
+      - keyloop-test-network
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    profiles:
+      - observability
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    networks:
+      - keyloop-test-network
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+      - tempo
+      - loki
+    profiles:
+      - observability
+
 
 volumes:
   keyloop-test-postgresql-data:
     name: keyloop-test-postgresql-data
+  tempo-data:
 networks:
   keyloop-test-network:
     driver: bridge
