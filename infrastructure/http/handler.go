@@ -519,7 +519,9 @@ func appointmentErrorStatus(err error) int {
 		errors.Is(err, domain.ErrServiceNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, domain.ErrTimeSlotConflict),
-		errors.Is(err, domain.ErrNoAvailableResources):
+		errors.Is(err, domain.ErrNoAvailableResources),
+		errors.Is(err, usecase.ErrNoAvailability),
+		errors.Is(err, usecase.ErrResourceLocked):
 		return http.StatusConflict
 	case errors.Is(err, usecase.ErrDesiredDateInPast),
 		errors.Is(err, usecase.ErrStartTimeInPast),

@@ -20,6 +20,7 @@ import (
 	rediscache "keyloop-test/infrastructure/redis"
 	"keyloop-test/infrastructure/telemetry"
 	httpHandler "keyloop-test/infrastructure/http"
+	"keyloop-test/internal/lock"
 	"keyloop-test/internal/usecase"
 
 	"github.com/gin-gonic/gin"
@@ -80,6 +81,8 @@ func main() {
 	vehicleRepo := postgrerepository.NewVehicleRepository(db)
 	availabilitySlotRepo := postgrerepository.NewAvailabilitySlotRepository(db)
 	appointmentRepo := postgrerepository.NewAppointmentRepository(db)
+	bookingRepo := postgrerepository.NewUnifiedRepository(db)
+	locker := lock.NewBookingLocker(redisClient)
 
 	// Initialize Use Cases
 	usecaseTracer := telemetry.NewTracer("keyloop-test/usecase")
@@ -92,6 +95,8 @@ func main() {
 		serviceCache,
 		availabilitySlotRepo,
 		appointmentRepo,
+		bookingRepo,
+		locker,
 		usecaseTracer,
 	)
 

@@ -169,6 +169,22 @@ RETURNING *;
 -- name: DeleteServiceBay :exec
 DELETE FROM service_bays WHERE id = $1;
 
+-- name: GetAvailableServiceBays :many
+SELECT b.*
+FROM service_bays b
+WHERE b.dealership_id = sqlc.arg(dealership_id)
+  AND b.status = 'active'
+  AND b.deleted_at IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM appointments a
+    WHERE a.service_bay_id = b.id
+      AND a.deleted_at IS NULL
+      AND a.status IN ('pending', 'confirmed')
+      AND tstzrange(a.start_time, a.end_time) &&
+          tstzrange(sqlc.arg(start_time)::TIMESTAMPTZ, sqlc.arg(end_time)::TIMESTAMPTZ)
+  )
+ORDER BY b.bay_number ASC;
+
 
 -- =========================================================================
 -- SERVICE 
@@ -230,6 +246,69 @@ RETURNING *;
 
 -- name: DeleteTechnician :exec
 DELETE FROM technicians WHERE id = $1;
+
+-- name: GetAvailableTechnicians :many
+SELECT t.*
+FROM technicians t
+WHERE t.dealership_id = sqlc.arg(dealership_id)
+  AND t.status = 'active'
+  AND t.deleted_at IS NULL
+  AND t.id IN (
+    SELECT technician_id FROM technician_skills
+    WHERE service_id::text = ANY(sqlc.arg(service_ids)::text[])
+    GROUP BY technician_id
+    HAVING COUNT(DISTINCT service_id) = cardinality(sqlc.arg(service_ids)::text[])
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM appointments a
+    WHERE a.technician_id = t.id
+      AND a.deleted_at IS NULL
+      AND a.status IN ('pending', 'confirmed')
+      AND tstzrange(a.start_time, a.end_time) &&
+          tstzrange(sqlc.arg(start_time)::TIMESTAMPTZ, sqlc.arg(end_time)::TIMESTAMPTZ)
+  )
+ORDER BY t.first_name ASC;
+
+-- name: FindAvailableTechnicianAndBay :one
+-- Picks the alphabetically-first active technician who holds ALL requested
+-- skills and has no confirmed/pending appointment overlapping [start_time, end_time),
+-- paired with the lowest-numbered active bay in the same dealership that is
+-- also free during that interval.
+-- Returns zero rows (sql.ErrNoRows) when no valid pair exists.
+SELECT t.id AS technician_id, b.id AS bay_id
+FROM technicians t
+CROSS JOIN service_bays b
+WHERE t.dealership_id = sqlc.arg(dealership_id)
+  AND t.status       = 'active'
+  AND t.deleted_at IS NULL
+  AND t.id IN (
+    SELECT technician_id
+    FROM   technician_skills
+    WHERE  service_id::text = ANY(sqlc.arg(service_ids)::text[])
+    GROUP  BY technician_id
+    HAVING COUNT(DISTINCT service_id) = cardinality(sqlc.arg(service_ids)::text[])
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM appointments a
+    WHERE  a.technician_id = t.id
+      AND  a.deleted_at IS NULL
+      AND  a.status IN ('pending', 'confirmed')
+      AND  tstzrange(a.start_time, a.end_time) &&
+           tstzrange(sqlc.arg(start_time)::TIMESTAMPTZ, sqlc.arg(end_time)::TIMESTAMPTZ)
+  )
+  AND b.dealership_id = sqlc.arg(dealership_id)
+  AND b.status       = 'active'
+  AND b.deleted_at IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM appointments a
+    WHERE  a.service_bay_id = b.id
+      AND  a.deleted_at IS NULL
+      AND  a.status IN ('pending', 'confirmed')
+      AND  tstzrange(a.start_time, a.end_time) &&
+           tstzrange(sqlc.arg(start_time)::TIMESTAMPTZ, sqlc.arg(end_time)::TIMESTAMPTZ)
+  )
+ORDER BY t.first_name ASC, b.bay_number ASC
+LIMIT 1;
 
 
 -- =========================================================================
@@ -347,6 +426,25 @@ SELECT
 
 FROM available_bay availbay, available_technician availtech
 RETURNING *;
+
+-- name: InsertAppointment :one
+INSERT INTO appointments (
+  dealership_id, customer_id, vehicle_id,
+  service_bay_id, technician_id,
+  start_time, end_time,
+  status, notes, services
+) VALUES (
+  sqlc.arg(dealership_id),
+  sqlc.arg(customer_id),
+  sqlc.arg(vehicle_id),
+  sqlc.arg(service_bay_id),
+  sqlc.arg(technician_id),
+  sqlc.arg(start_time)::TIMESTAMPTZ,
+  sqlc.arg(end_time)::TIMESTAMPTZ,
+  sqlc.arg(status)::appointment_status,
+  sqlc.arg(notes),
+  sqlc.arg(services)::JSONB
+) RETURNING *;
 
 -- name: DeleteAppointment :exec
 UPDATE appointments

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"keyloop-test/internal/domain"
+	"keyloop-test/internal/port"
 	"keyloop-test/internal/usecase"
 )
 
@@ -41,6 +42,9 @@ func (s *stubServiceBayRepo) GetServiceBay(_ context.Context, _ string) (*domain
 func (s *stubServiceBayRepo) ListServiceBaysByDealership(_ context.Context, _ string) ([]*domain.ServiceBay, error) {
 	return nil, nil
 }
+func (s *stubServiceBayRepo) GetAvailableServiceBays(_ context.Context, _ string, _, _ time.Time) ([]*domain.ServiceBay, error) {
+	return nil, nil
+}
 func (s *stubServiceBayRepo) CreateServiceBay(_ context.Context, _ *domain.ServiceBay) error {
 	return nil
 }
@@ -57,6 +61,9 @@ func (s *stubTechnicianRepo) GetTechnician(_ context.Context, _ string) (*domain
 	return nil, nil
 }
 func (s *stubTechnicianRepo) ListTechniciansByDealership(_ context.Context, _ string) ([]*domain.Technician, error) {
+	return nil, nil
+}
+func (s *stubTechnicianRepo) GetAvailableTechnicians(_ context.Context, _ string, _, _ time.Time, _ []string) ([]*domain.Technician, error) {
 	return nil, nil
 }
 func (s *stubTechnicianRepo) CreateTechnician(_ context.Context, _ *domain.Technician) error {
@@ -123,7 +130,6 @@ func (s *stubAppointmentRepo) CreateAppointment(_ context.Context, appt *domain.
 	if s.err != nil {
 		return nil, s.err
 	}
-	// echo back the input with a stable ID so Duration() works
 	out := *appt
 	out.ID = "appt-001"
 	return &out, nil
@@ -163,6 +169,63 @@ func (s *stubCache) GetService(_ context.Context, _ string) (*domain.Service, bo
 func (s *stubCache) SetService(_ context.Context, _ string, _ *domain.Service, _ time.Duration) error {
 	s.setCalls++
 	return nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Booking-path stubs (used by tests that exercise FindAvailableTechnicianAndBay
+// + AcquireLock + InsertAppointment).
+
+type stubTracer struct{}
+
+func (t *stubTracer) Start(ctx context.Context, _ string, _ ...port.SpanAttr) (context.Context, port.Span) {
+	return ctx, &stubSpan{}
+}
+
+type stubSpan struct{}
+
+func (s *stubSpan) End()                    {}
+func (s *stubSpan) RecordError(_ error)     {}
+func (s *stubSpan) SetErrorStatus(_ string) {}
+
+type stubBookingRepo struct {
+	resources    *domain.AvailableResources
+	availErr     error
+	insertErr    error
+	lastInserted *domain.Appointment
+}
+
+func (r *stubBookingRepo) FindAvailableTechnicianAndBay(_ context.Context, _ string, _, _ time.Time, _ []string) (*domain.AvailableResources, error) {
+	return r.resources, r.availErr
+}
+
+func (r *stubBookingRepo) InsertAppointment(_ context.Context, appt *domain.Appointment) (*domain.Appointment, error) {
+	r.lastInserted = appt
+	if r.insertErr != nil {
+		return nil, r.insertErr
+	}
+	out := *appt
+	out.ID = "appt-001"
+	return &out, nil
+}
+
+type stubBookingLocker struct {
+	acquired     bool
+	releaseCalls int
+}
+
+func (l *stubBookingLocker) AcquireLock(_ context.Context, _, _ string, _, _ time.Time) (bool, error) {
+	return l.acquired, nil
+}
+func (l *stubBookingLocker) ReleaseLock(_ context.Context, _, _ string, _, _ time.Time) error {
+	l.releaseCalls++
+	return nil
+}
+
+// defaultBookingRepo returns a repo that always finds one available pair.
+func defaultBookingRepo() *stubBookingRepo {
+	return &stubBookingRepo{
+		resources: &domain.AvailableResources{TechnicianID: "tech-1", BayID: "bay-1"},
+	}
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -239,6 +302,9 @@ func newUC(
 		cache,
 		&stubAvailabilityRepo{},
 		apptRepo,
+		defaultBookingRepo(),
+		&stubBookingLocker{acquired: true},
+		&stubTracer{},
 	)
 }
 
@@ -388,6 +454,9 @@ func TestBookAppointment_CombinedServiceDurationExceedsClose_Fails(t *testing.T)
 		cache,
 		&stubAvailabilityRepo{},
 		&stubAppointmentRepo{},
+		defaultBookingRepo(),
+		&stubBookingLocker{acquired: true},
+		&stubTracer{},
 	)
 
 	// 17:00 + 75min = 18:15 — exceeds close even though 17:00 is within hours
@@ -422,6 +491,9 @@ func TestBookAppointment_CombinedServiceEndsExactlyAtClose_Succeeds(t *testing.T
 		cache,
 		&stubAvailabilityRepo{},
 		apptRepo,
+		defaultBookingRepo(),
+		&stubBookingLocker{acquired: true},
+		&stubTracer{},
 	)
 
 	// 16:45 + 75min = 18:00 exactly
@@ -521,8 +593,23 @@ func TestBookAppointment_RepoError(t *testing.T) {
 	dealershipRepo := &stubDealershipRepo{dealership: openDealership()}
 	vehicleRepo := &stubVehicleRepo{vehicle: &domain.Vehicle{ID: "v-001"}}
 	repoErr := errors.New("no available bay or technician")
-	apptRepo := &stubAppointmentRepo{err: repoErr}
-	uc := newUC(dealershipRepo, &stubServiceDefRepo{}, vehicleRepo, apptRepo, cache)
+	bookingRepo := &stubBookingRepo{
+		resources: &domain.AvailableResources{TechnicianID: "tech-1", BayID: "bay-1"},
+		insertErr: repoErr,
+	}
+	uc := usecase.NewAppointmentBookingUseCase(
+		dealershipRepo,
+		&stubServiceBayRepo{},
+		&stubTechnicianRepo{},
+		&stubServiceDefRepo{},
+		vehicleRepo,
+		cache,
+		&stubAvailabilityRepo{},
+		&stubAppointmentRepo{},
+		bookingRepo,
+		&stubBookingLocker{acquired: true},
+		&stubTracer{},
+	)
 
 	_, err := uc.BookAppointment(context.Background(), &usecase.AppoinmentBookingInput{
 		DealershipID:     "d-001",
@@ -622,6 +709,9 @@ func TestBookAppointment_MultipleServices_DurationSums(t *testing.T) {
 		cache,
 		&stubAvailabilityRepo{},
 		apptRepo,
+		defaultBookingRepo(),
+		&stubBookingLocker{acquired: true},
+		&stubTracer{},
 	)
 	_ = serviceRepo
 
@@ -643,8 +733,20 @@ func TestBookAppointment_NotesPassedThrough(t *testing.T) {
 	cache := &stubCache{service: oilChangeService(), hit: true}
 	dealershipRepo := &stubDealershipRepo{dealership: openDealership()}
 	vehicleRepo := &stubVehicleRepo{vehicle: &domain.Vehicle{ID: "v-001"}}
-	apptRepo := &stubAppointmentRepo{}
-	uc := newUC(dealershipRepo, &stubServiceDefRepo{}, vehicleRepo, apptRepo, cache)
+	bookingRepo := defaultBookingRepo()
+	uc := usecase.NewAppointmentBookingUseCase(
+		dealershipRepo,
+		&stubServiceBayRepo{},
+		&stubTechnicianRepo{},
+		&stubServiceDefRepo{},
+		vehicleRepo,
+		cache,
+		&stubAvailabilityRepo{},
+		&stubAppointmentRepo{},
+		bookingRepo,
+		&stubBookingLocker{acquired: true},
+		&stubTracer{},
+	)
 
 	const note = "please check the brakes too"
 	_, err := uc.BookAppointment(context.Background(), &usecase.AppoinmentBookingInput{
@@ -657,11 +759,11 @@ func TestBookAppointment_NotesPassedThrough(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if apptRepo.lastCreated == nil {
-		t.Fatal("expected CreateAppointment to be called")
+	if bookingRepo.lastInserted == nil {
+		t.Fatal("expected InsertAppointment to be called")
 	}
-	if apptRepo.lastCreated.Notes != note {
-		t.Errorf("Notes = %q, want %q", apptRepo.lastCreated.Notes, note)
+	if bookingRepo.lastInserted.Notes != note {
+		t.Errorf("Notes = %q, want %q", bookingRepo.lastInserted.Notes, note)
 	}
 }
 
@@ -669,8 +771,20 @@ func TestBookAppointment_StatusIsPendingOnCreation(t *testing.T) {
 	cache := &stubCache{service: oilChangeService(), hit: true}
 	dealershipRepo := &stubDealershipRepo{dealership: openDealership()}
 	vehicleRepo := &stubVehicleRepo{vehicle: &domain.Vehicle{ID: "v-001"}}
-	apptRepo := &stubAppointmentRepo{}
-	uc := newUC(dealershipRepo, &stubServiceDefRepo{}, vehicleRepo, apptRepo, cache)
+	bookingRepo := defaultBookingRepo()
+	uc := usecase.NewAppointmentBookingUseCase(
+		dealershipRepo,
+		&stubServiceBayRepo{},
+		&stubTechnicianRepo{},
+		&stubServiceDefRepo{},
+		vehicleRepo,
+		cache,
+		&stubAvailabilityRepo{},
+		&stubAppointmentRepo{},
+		bookingRepo,
+		&stubBookingLocker{acquired: true},
+		&stubTracer{},
+	)
 
 	_, err := uc.BookAppointment(context.Background(), &usecase.AppoinmentBookingInput{
 		DealershipID:     "d-001",
@@ -681,8 +795,8 @@ func TestBookAppointment_StatusIsPendingOnCreation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if apptRepo.lastCreated.Status != domain.AppointmentStatusPending {
-		t.Errorf("Status = %v, want pending", apptRepo.lastCreated.Status)
+	if bookingRepo.lastInserted.Status != domain.AppointmentStatusPending {
+		t.Errorf("Status = %v, want pending", bookingRepo.lastInserted.Status)
 	}
 }
 
@@ -690,8 +804,20 @@ func TestBookAppointment_EndTimeIsStartPlusDuration(t *testing.T) {
 	cache := &stubCache{service: oilChangeService(), hit: true}
 	dealershipRepo := &stubDealershipRepo{dealership: openDealership()}
 	vehicleRepo := &stubVehicleRepo{vehicle: &domain.Vehicle{ID: "v-001"}}
-	apptRepo := &stubAppointmentRepo{}
-	uc := newUC(dealershipRepo, &stubServiceDefRepo{}, vehicleRepo, apptRepo, cache)
+	bookingRepo := defaultBookingRepo()
+	uc := usecase.NewAppointmentBookingUseCase(
+		dealershipRepo,
+		&stubServiceBayRepo{},
+		&stubTechnicianRepo{},
+		&stubServiceDefRepo{},
+		vehicleRepo,
+		cache,
+		&stubAvailabilityRepo{},
+		&stubAppointmentRepo{},
+		bookingRepo,
+		&stubBookingLocker{acquired: true},
+		&stubTracer{},
+	)
 
 	start := futureTime(9)
 	_, err := uc.BookAppointment(context.Background(), &usecase.AppoinmentBookingInput{
@@ -704,8 +830,8 @@ func TestBookAppointment_EndTimeIsStartPlusDuration(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	wantEnd := start.Add(30 * time.Minute)
-	if !apptRepo.lastCreated.EndTime.Equal(wantEnd) {
-		t.Errorf("EndTime = %v, want %v", apptRepo.lastCreated.EndTime, wantEnd)
+	if !bookingRepo.lastInserted.EndTime.Equal(wantEnd) {
+		t.Errorf("EndTime = %v, want %v", bookingRepo.lastInserted.EndTime, wantEnd)
 	}
 }
 
@@ -810,6 +936,9 @@ func TestAvailableSlots_FiltersOutsideBusinessHours(t *testing.T) {
 		&stubCache{service: oilChangeService(), hit: true},
 		slotRepo,
 		&stubAppointmentRepo{},
+		defaultBookingRepo(),
+		&stubBookingLocker{acquired: true},
+		&stubTracer{},
 	)
 
 	out, err := uc.AvailableSlots(context.Background(), availableSlotsReq())
@@ -836,6 +965,9 @@ func TestAvailableSlots_EmptyResult_ReturnsEmptySlice(t *testing.T) {
 		&stubCache{service: oilChangeService(), hit: true},
 		slotRepo,
 		&stubAppointmentRepo{},
+		defaultBookingRepo(),
+		&stubBookingLocker{acquired: true},
+		&stubTracer{},
 	)
 
 	out, err := uc.AvailableSlots(context.Background(), availableSlotsReq())
@@ -886,6 +1018,9 @@ func TestAvailableSlots_SlotRepoError(t *testing.T) {
 		&stubCache{service: oilChangeService(), hit: true},
 		slotRepo,
 		&stubAppointmentRepo{},
+		defaultBookingRepo(),
+		&stubBookingLocker{acquired: true},
+		&stubTracer{},
 	)
 
 	_, err := uc.AvailableSlots(context.Background(), availableSlotsReq())
@@ -928,6 +1063,9 @@ func TestAvailableSlots_FiltersNonWorkingDaySlots(t *testing.T) {
 		&stubCache{service: oilChangeService(), hit: true},
 		slotRepo,
 		&stubAppointmentRepo{},
+		defaultBookingRepo(),
+		&stubBookingLocker{acquired: true},
+		&stubTracer{},
 	)
 
 	req := &usecase.AvailableSlotsInput{
@@ -955,6 +1093,9 @@ func TestAvailableSlots_WeekendRejected(t *testing.T) {
 		&stubCache{service: oilChangeService(), hit: true},
 		&configuredAvailabilityRepo{},
 		&stubAppointmentRepo{},
+		defaultBookingRepo(),
+		&stubBookingLocker{acquired: true},
+		&stubTracer{},
 	)
 	req := availableSlotsReq()
 	req.DesiredDate = nextWeekend(8)
@@ -998,6 +1139,9 @@ func newListUC(apptRepo *listableAppointmentRepo) *usecase.AppoinmentBookingUseC
 		&stubCache{},
 		&stubAvailabilityRepo{},
 		apptRepo,
+		defaultBookingRepo(),
+		&stubBookingLocker{acquired: true},
+		&stubTracer{},
 	)
 }
 

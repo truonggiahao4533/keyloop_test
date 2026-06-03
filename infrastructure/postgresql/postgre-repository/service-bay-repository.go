@@ -3,6 +3,7 @@ package postgrerepository
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"keyloop-test/infrastructure/postgresql/sqlc"
 	"keyloop-test/internal/domain"
@@ -91,6 +92,34 @@ func (r *serviceBayRepo) UpdateServiceBay(ctx context.Context, b *domain.Service
 	}
 	b.UpdatedAt = updated.UpdatedAt
 	return nil
+}
+
+func (r *serviceBayRepo) GetAvailableServiceBays(ctx context.Context, dealershipID string, start, end time.Time) ([]*domain.ServiceBay, error) {
+	did, err := uuid.Parse(dealershipID)
+	if err != nil {
+		return nil, err
+	}
+	bs, err := r.q.GetAvailableServiceBays(ctx, sqlc.GetAvailableServiceBaysParams{
+		DealershipID: did,
+		StartTime:    start,
+		EndTime:      end,
+	})
+	if err != nil {
+		return nil, err
+	}
+	res := make([]*domain.ServiceBay, len(bs))
+	for i, b := range bs {
+		res[i] = &domain.ServiceBay{
+			ID:           b.ID.String(),
+			DealershipID: b.DealershipID.String(),
+			Name:         b.Name,
+			BayNumber:    int(b.BayNumber),
+			Status:       domain.BayStatus(b.Status),
+			CreatedAt:    b.CreatedAt,
+			UpdatedAt:    b.UpdatedAt,
+		}
+	}
+	return res, nil
 }
 
 func (r *serviceBayRepo) DeleteServiceBay(ctx context.Context, id string) error {

@@ -34,6 +34,7 @@ type DealershipRepository interface {
 type ServiceBayRepository interface {
 	GetServiceBay(ctx context.Context, id string) (*domain.ServiceBay, error)
 	ListServiceBaysByDealership(ctx context.Context, dealershipID string) ([]*domain.ServiceBay, error)
+	GetAvailableServiceBays(ctx context.Context, dealershipID string, start, end time.Time) ([]*domain.ServiceBay, error)
 	CreateServiceBay(ctx context.Context, bay *domain.ServiceBay) error
 	UpdateServiceBay(ctx context.Context, bay *domain.ServiceBay) error
 	DeleteServiceBay(ctx context.Context, id string) error
@@ -50,6 +51,7 @@ type ServiceRepository interface {
 type TechnicianRepository interface {
 	GetTechnician(ctx context.Context, id string) (*domain.Technician, error)
 	ListTechniciansByDealership(ctx context.Context, dealershipID string) ([]*domain.Technician, error)
+	GetAvailableTechnicians(ctx context.Context, dealershipID string, start, end time.Time, serviceIDs []string) ([]*domain.Technician, error)
 	CreateTechnician(ctx context.Context, tech *domain.Technician) error
 	UpdateTechnician(ctx context.Context, tech *domain.Technician) error
 	DeleteTechnician(ctx context.Context, id string) error
@@ -74,4 +76,14 @@ type AppointmentRepository interface {
 
 type AvailabilitySlotRepository interface {
 	GetAvailableSlots(ctx context.Context, startTime, endTime time.Time, dealershipID string, duration time.Duration, serviceTypes []string) ([]domain.AvailableSlot, error)
+}
+
+type BookingRepository interface {
+	// FindAvailableTechnicianAndBay returns the first (technician, bay) pair that
+	// is free for [start, end) and where the technician holds all serviceIDs.
+	// Returns nil, nil when no pair exists — not an error.
+	FindAvailableTechnicianAndBay(ctx context.Context, dealershipID string, start, end time.Time, serviceIDs []string) (*domain.AvailableResources, error)
+	// InsertAppointment performs a plain INSERT with explicit technician and bay IDs.
+	// Returns domain.ErrDuplicateBooking if a unique or exclusion constraint fires.
+	InsertAppointment(ctx context.Context, appt *domain.Appointment) (*domain.Appointment, error)
 }

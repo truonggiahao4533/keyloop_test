@@ -30,11 +30,19 @@ type Querier interface {
 	DeleteTechnician(ctx context.Context, id uuid.UUID) error
 	DeleteTechnicianSkill(ctx context.Context, arg DeleteTechnicianSkillParams) error
 	DeleteVehicle(ctx context.Context, id uuid.UUID) error
+	// Picks the alphabetically-first active technician who holds ALL requested
+	// skills and has no confirmed/pending appointment overlapping [start_time, end_time),
+	// paired with the lowest-numbered active bay in the same dealership that is
+	// also free during that interval.
+	// Returns zero rows (sql.ErrNoRows) when no valid pair exists.
+	FindAvailableTechnicianAndBay(ctx context.Context, arg FindAvailableTechnicianAndBayParams) (FindAvailableTechnicianAndBayRow, error)
 	// =========================================================================
 	// APPOINTMENTS (Remaining CRUD)
 	// =========================================================================
 	GetAppointment(ctx context.Context, id uuid.UUID) (Appointment, error)
+	GetAvailableServiceBays(ctx context.Context, arg GetAvailableServiceBaysParams) ([]ServiceBay, error)
 	GetAvailableSlots(ctx context.Context, arg GetAvailableSlotsParams) ([]time.Time, error)
+	GetAvailableTechnicians(ctx context.Context, arg GetAvailableTechniciansParams) ([]Technician, error)
 	//
 	// =========================================================================
 	// CUSTOMERS
@@ -60,6 +68,7 @@ type Querier interface {
 	// VEHICLES
 	// =========================================================================
 	GetVehicle(ctx context.Context, id uuid.UUID) (Vehicle, error)
+	InsertAppointment(ctx context.Context, arg InsertAppointmentParams) (Appointment, error)
 	ListAppointmentsByCustomer(ctx context.Context, customerID uuid.UUID) ([]Appointment, error)
 	ListAppointmentsByCustomerAndDealership(ctx context.Context, arg ListAppointmentsByCustomerAndDealershipParams) ([]Appointment, error)
 	ListAppointmentsByDealership(ctx context.Context, dealershipID uuid.UUID) ([]Appointment, error)
@@ -73,6 +82,7 @@ type Querier interface {
 	ListTechnicianSkills(ctx context.Context, technicianID uuid.UUID) ([]TechnicianSkill, error)
 	ListTechniciansByDealership(ctx context.Context, dealershipID uuid.UUID) ([]Technician, error)
 	ListVehiclesByCustomer(ctx context.Context, customerID uuid.UUID) ([]Vehicle, error)
+	UpdateAppointment(ctx context.Context, arg UpdateAppointmentParams) (Appointment, error)
 	UpdateAppointmentStatus(ctx context.Context, arg UpdateAppointmentStatusParams) (Appointment, error)
 	UpdateCustomer(ctx context.Context, arg UpdateCustomerParams) (Customer, error)
 	UpdateDealership(ctx context.Context, arg UpdateDealershipParams) (Dealership, error)

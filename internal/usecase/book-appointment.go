@@ -3,7 +3,9 @@ package usecase
 import (
 	"context"
 	"errors"
+	"fmt"
 	"keyloop-test/internal/domain"
+	"keyloop-test/internal/lock"
 	"keyloop-test/internal/port"
 	"keyloop-test/internal/repository"
 	"log/slog"
@@ -23,6 +25,8 @@ var (
 	ErrSlotNotOnWorkingDay       = errors.New("chosen date is not a working day for this dealership")
 	ErrInvalidStatusTransition   = errors.New("invalid status transition")
 	ErrCannotDeleteAppointment   = errors.New("appointment cannot be deleted in its current status")
+	ErrNoAvailability            = errors.New("no technician or bay available for the requested slot")
+	ErrResourceLocked            = errors.New("slot temporarily locked by a concurrent request, please try again")
 )
 
 // validTransitions defines the allowed status transitions for an appointment.
@@ -47,6 +51,8 @@ type AppoinmentBookingUseCase struct {
 	serviceCache         port.ServiceCacheProvider
 	availabilitySlotRepo repository.AvailabilitySlotRepository
 	appointmentRepo      repository.AppointmentRepository
+	bookingRepo          repository.BookingRepository
+	locker               lock.BookingLockerInterface
 	tracer               port.Tracer
 }
 
@@ -60,6 +66,8 @@ func NewAppointmentBookingUseCase(
 	serviceCache port.ServiceCacheProvider,
 	availabilitySlotRepo repository.AvailabilitySlotRepository,
 	appointmentRepo repository.AppointmentRepository,
+	bookingRepo repository.BookingRepository,
+	locker lock.BookingLockerInterface,
 	tracer port.Tracer,
 ) *AppoinmentBookingUseCase {
 	return &AppoinmentBookingUseCase{
@@ -71,6 +79,8 @@ func NewAppointmentBookingUseCase(
 		serviceCache:         serviceCache,
 		availabilitySlotRepo: availabilitySlotRepo,
 		appointmentRepo:      appointmentRepo,
+		bookingRepo:          bookingRepo,
+		locker:               locker,
 		tracer:               tracer,
 	}
 }
@@ -166,25 +176,67 @@ func (uc *AppoinmentBookingUseCase) BookAppointment(ctx context.Context, req *Ap
 		return nil, ErrVehicleNotOwnedByCustomer
 	}
 
-	rCtx, rSpan = uc.tracer.Start(ctx, "repo.CreateAppointment")
-	appt, err := uc.appointmentRepo.CreateAppointment(rCtx, &domain.Appointment{
+	endTime := req.DesiredStartTime.Add(totalDuration)
+
+	serviceIDs := make([]string, len(services))
+	for i, s := range services {
+		serviceIDs[i] = s.ServiceID
+	}
+
+	// Step 1: find an available (technician, bay) pair for the slot.
+	rCtx, rSpan = uc.tracer.Start(ctx, "repo.FindAvailableTechnicianAndBay")
+	resources, repoErr := uc.bookingRepo.FindAvailableTechnicianAndBay(rCtx, req.DealershipID, req.DesiredStartTime, endTime, serviceIDs)
+	if repoErr != nil {
+		rSpan.RecordError(repoErr)
+		rSpan.SetErrorStatus(repoErr.Error())
+		rSpan.End()
+		return nil, fmt.Errorf("find availability: %w", repoErr)
+	}
+	rSpan.End()
+	if resources == nil {
+		return nil, ErrNoAvailability
+	}
+
+	// Step 2: acquire a distributed lock so concurrent requests for the same
+	// (technician, bay, slot) triple are serialised at the Redis layer.
+	acquired, err := uc.locker.AcquireLock(ctx, resources.TechnicianID, resources.BayID, req.DesiredStartTime, endTime)
+	if err != nil {
+		return nil, fmt.Errorf("acquire lock: %w", err)
+	}
+	if !acquired {
+		return nil, ErrResourceLocked
+	}
+	defer func() {
+		if releaseErr := uc.locker.ReleaseLock(ctx, resources.TechnicianID, resources.BayID, req.DesiredStartTime, endTime); releaseErr != nil {
+			slog.WarnContext(ctx, "failed to release booking lock", "error", releaseErr)
+		}
+	}()
+
+	// Step 3: plain INSERT — no CTE selection, bay and technician are already known.
+	rCtx, rSpan = uc.tracer.Start(ctx, "repo.InsertAppointment")
+	appt, err := uc.bookingRepo.InsertAppointment(rCtx, &domain.Appointment{
 		CustomerID:   req.CustomerID,
 		VehicleID:    req.VehicleID,
 		DealershipID: req.DealershipID,
+		TechnicianID: resources.TechnicianID,
+		ServiceBayID: resources.BayID,
 		Status:       domain.AppointmentStatusPending,
 		StartTime:    req.DesiredStartTime,
-		EndTime:      req.DesiredStartTime.Add(totalDuration),
+		EndTime:      endTime,
 		Services:     services,
 		Notes:        req.Notes,
 	})
 	if err != nil {
 		rSpan.RecordError(err)
 		rSpan.SetErrorStatus(err.Error())
+		rSpan.End()
+		if errors.Is(err, domain.ErrDuplicateBooking) {
+			slog.WarnContext(ctx, "Redis lock passed but DB constraint caught a duplicate — investigate lock TTL or Redis availability")
+			return nil, ErrNoAvailability
+		}
+		return nil, fmt.Errorf("insert booking: %w", err)
 	}
 	rSpan.End()
-	if err != nil {
-		return nil, err
-	}
 
 	slog.InfoContext(ctx, "appointment created",
 		"appointment_id", appt.ID,

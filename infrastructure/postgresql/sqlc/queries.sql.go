@@ -27,6 +27,7 @@ available_bay AS (
   SELECT b.id
   FROM service_bays b, slot_range sr
   WHERE b.dealership_id = $1
+    AND b.status = 'active'
     AND NOT EXISTS (
       SELECT 1 FROM appointments a
       WHERE a.service_bay_id = b.id
@@ -41,6 +42,7 @@ available_technician AS (
   SELECT t.id
   FROM technicians t, slot_range sr
   WHERE t.dealership_id = $1
+    AND t.status = 'active'
     AND t.id IN (
       SELECT technician_id FROM technician_skills
       WHERE service_id::text = ANY($9::text[])
@@ -473,7 +475,74 @@ func (q *Queries) DeleteVehicle(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const findAvailableTechnicianAndBay = `-- name: FindAvailableTechnicianAndBay :one
+SELECT t.id AS technician_id, b.id AS bay_id
+FROM technicians t
+CROSS JOIN service_bays b
+WHERE t.dealership_id = $1
+  AND t.status       = 'active'
+  AND t.deleted_at IS NULL
+  AND t.id IN (
+    SELECT technician_id
+    FROM   technician_skills
+    WHERE  service_id::text = ANY($2::text[])
+    GROUP  BY technician_id
+    HAVING COUNT(DISTINCT service_id) = cardinality($2::text[])
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM appointments a
+    WHERE  a.technician_id = t.id
+      AND  a.deleted_at IS NULL
+      AND  a.status IN ('pending', 'confirmed')
+      AND  tstzrange(a.start_time, a.end_time) &&
+           tstzrange($3::TIMESTAMPTZ, $4::TIMESTAMPTZ)
+  )
+  AND b.dealership_id = $1
+  AND b.status       = 'active'
+  AND b.deleted_at IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM appointments a
+    WHERE  a.service_bay_id = b.id
+      AND  a.deleted_at IS NULL
+      AND  a.status IN ('pending', 'confirmed')
+      AND  tstzrange(a.start_time, a.end_time) &&
+           tstzrange($3::TIMESTAMPTZ, $4::TIMESTAMPTZ)
+  )
+ORDER BY t.first_name ASC, b.bay_number ASC
+LIMIT 1
+`
+
+type FindAvailableTechnicianAndBayParams struct {
+	DealershipID uuid.UUID `json:"dealership_id"`
+	ServiceIds   []string  `json:"service_ids"`
+	StartTime    time.Time `json:"start_time"`
+	EndTime      time.Time `json:"end_time"`
+}
+
+type FindAvailableTechnicianAndBayRow struct {
+	TechnicianID uuid.UUID `json:"technician_id"`
+	BayID        uuid.UUID `json:"bay_id"`
+}
+
+// Picks the alphabetically-first active technician who holds ALL requested
+// skills and has no confirmed/pending appointment overlapping [start_time, end_time),
+// paired with the lowest-numbered active bay in the same dealership that is
+// also free during that interval.
+// Returns zero rows (sql.ErrNoRows) when no valid pair exists.
+func (q *Queries) FindAvailableTechnicianAndBay(ctx context.Context, arg FindAvailableTechnicianAndBayParams) (FindAvailableTechnicianAndBayRow, error) {
+	row := q.db.QueryRowContext(ctx, findAvailableTechnicianAndBay,
+		arg.DealershipID,
+		pq.Array(arg.ServiceIds),
+		arg.StartTime,
+		arg.EndTime,
+	)
+	var i FindAvailableTechnicianAndBayRow
+	err := row.Scan(&i.TechnicianID, &i.BayID)
+	return i, err
+}
+
 const getAppointment = `-- name: GetAppointment :one
+
 SELECT id, customer_id, vehicle_id, dealership_id, service_bay_id, technician_id, services, status, start_time, end_time, notes, deleted_at, created_at, updated_at FROM appointments WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -502,6 +571,61 @@ func (q *Queries) GetAppointment(ctx context.Context, id uuid.UUID) (Appointment
 	return i, err
 }
 
+const getAvailableServiceBays = `-- name: GetAvailableServiceBays :many
+SELECT b.id, b.dealership_id, b.name, b.bay_number, b.status, b.deleted_at, b.created_at, b.updated_at
+FROM service_bays b
+WHERE b.dealership_id = $1
+  AND b.status = 'active'
+  AND b.deleted_at IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM appointments a
+    WHERE a.service_bay_id = b.id
+      AND a.deleted_at IS NULL
+      AND a.status IN ('pending', 'confirmed')
+      AND tstzrange(a.start_time, a.end_time) &&
+          tstzrange($2::TIMESTAMPTZ, $3::TIMESTAMPTZ)
+  )
+ORDER BY b.bay_number ASC
+`
+
+type GetAvailableServiceBaysParams struct {
+	DealershipID uuid.UUID `json:"dealership_id"`
+	StartTime    time.Time `json:"start_time"`
+	EndTime      time.Time `json:"end_time"`
+}
+
+func (q *Queries) GetAvailableServiceBays(ctx context.Context, arg GetAvailableServiceBaysParams) ([]ServiceBay, error) {
+	rows, err := q.db.QueryContext(ctx, getAvailableServiceBays, arg.DealershipID, arg.StartTime, arg.EndTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ServiceBay
+	for rows.Next() {
+		var i ServiceBay
+		if err := rows.Scan(
+			&i.ID,
+			&i.DealershipID,
+			&i.Name,
+			&i.BayNumber,
+			&i.Status,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getAvailableSlots = `-- name: GetAvailableSlots :many
 SELECT slot::TIMESTAMP WITH TIME ZONE
 FROM generate_series(
@@ -514,6 +638,7 @@ WHERE
   EXISTS (
     SELECT 1 FROM service_bays b
     WHERE b.dealership_id = $3
+    AND b.status = 'active'
     AND b.id NOT IN (
       SELECT service_bay_id FROM appointments
       WHERE status IN ('pending', 'confirmed')
@@ -526,6 +651,7 @@ WHERE
   EXISTS (
     SELECT 1 FROM technicians t
     WHERE t.dealership_id = $3
+    AND t.status = 'active'
     AND t.id IN (
       -- tech must have ALL required skills
       SELECT technician_id FROM technician_skills
@@ -570,6 +696,73 @@ func (q *Queries) GetAvailableSlots(ctx context.Context, arg GetAvailableSlotsPa
 			return nil, err
 		}
 		items = append(items, slot)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getAvailableTechnicians = `-- name: GetAvailableTechnicians :many
+SELECT t.id, t.dealership_id, t.first_name, t.last_name, t.status, t.deleted_at, t.created_at, t.updated_at
+FROM technicians t
+WHERE t.dealership_id = $1
+  AND t.status = 'active'
+  AND t.deleted_at IS NULL
+  AND t.id IN (
+    SELECT technician_id FROM technician_skills
+    WHERE service_id::text = ANY($2::text[])
+    GROUP BY technician_id
+    HAVING COUNT(DISTINCT service_id) = cardinality($2::text[])
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM appointments a
+    WHERE a.technician_id = t.id
+      AND a.deleted_at IS NULL
+      AND a.status IN ('pending', 'confirmed')
+      AND tstzrange(a.start_time, a.end_time) &&
+          tstzrange($3::TIMESTAMPTZ, $4::TIMESTAMPTZ)
+  )
+ORDER BY t.first_name ASC
+`
+
+type GetAvailableTechniciansParams struct {
+	DealershipID uuid.UUID `json:"dealership_id"`
+	ServiceIds   []string  `json:"service_ids"`
+	StartTime    time.Time `json:"start_time"`
+	EndTime      time.Time `json:"end_time"`
+}
+
+func (q *Queries) GetAvailableTechnicians(ctx context.Context, arg GetAvailableTechniciansParams) ([]Technician, error) {
+	rows, err := q.db.QueryContext(ctx, getAvailableTechnicians,
+		arg.DealershipID,
+		pq.Array(arg.ServiceIds),
+		arg.StartTime,
+		arg.EndTime,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Technician
+	for rows.Next() {
+		var i Technician
+		if err := rows.Scan(
+			&i.ID,
+			&i.DealershipID,
+			&i.FirstName,
+			&i.LastName,
+			&i.Status,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -725,6 +918,72 @@ func (q *Queries) GetVehicle(ctx context.Context, id uuid.UUID) (Vehicle, error)
 		&i.Year,
 		&i.Vin,
 		&i.LicensePlate,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const insertAppointment = `-- name: InsertAppointment :one
+INSERT INTO appointments (
+  dealership_id, customer_id, vehicle_id,
+  service_bay_id, technician_id,
+  start_time, end_time,
+  status, notes, services
+) VALUES (
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6::TIMESTAMPTZ,
+  $7::TIMESTAMPTZ,
+  $8::appointment_status,
+  $9,
+  $10::JSONB
+) RETURNING id, customer_id, vehicle_id, dealership_id, service_bay_id, technician_id, services, status, start_time, end_time, notes, deleted_at, created_at, updated_at
+`
+
+type InsertAppointmentParams struct {
+	DealershipID uuid.UUID         `json:"dealership_id"`
+	CustomerID   uuid.UUID         `json:"customer_id"`
+	VehicleID    uuid.UUID         `json:"vehicle_id"`
+	ServiceBayID uuid.UUID         `json:"service_bay_id"`
+	TechnicianID uuid.UUID         `json:"technician_id"`
+	StartTime    time.Time         `json:"start_time"`
+	EndTime      time.Time         `json:"end_time"`
+	Status       AppointmentStatus `json:"status"`
+	Notes        sql.NullString    `json:"notes"`
+	Services     json.RawMessage   `json:"services"`
+}
+
+func (q *Queries) InsertAppointment(ctx context.Context, arg InsertAppointmentParams) (Appointment, error) {
+	row := q.db.QueryRowContext(ctx, insertAppointment,
+		arg.DealershipID,
+		arg.CustomerID,
+		arg.VehicleID,
+		arg.ServiceBayID,
+		arg.TechnicianID,
+		arg.StartTime,
+		arg.EndTime,
+		arg.Status,
+		arg.Notes,
+		arg.Services,
+	)
+	var i Appointment
+	err := row.Scan(
+		&i.ID,
+		&i.CustomerID,
+		&i.VehicleID,
+		&i.DealershipID,
+		&i.ServiceBayID,
+		&i.TechnicianID,
+		&i.Services,
+		&i.Status,
+		&i.StartTime,
+		&i.EndTime,
+		&i.Notes,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -1117,21 +1376,23 @@ func (q *Queries) ListVehiclesByCustomer(ctx context.Context, customerID uuid.UU
 	return items, nil
 }
 
-const updateAppointmentStatus = `-- name: UpdateAppointmentStatus :one
+const updateAppointment = `-- name: UpdateAppointment :one
 UPDATE appointments
 SET status = $2,
+    notes  = $3,
     updated_at = NOW()
-WHERE id = $1
+WHERE id = $1 AND deleted_at IS NULL
 RETURNING id, customer_id, vehicle_id, dealership_id, service_bay_id, technician_id, services, status, start_time, end_time, notes, deleted_at, created_at, updated_at
 `
 
-type UpdateAppointmentStatusParams struct {
+type UpdateAppointmentParams struct {
 	ID     uuid.UUID         `json:"id"`
 	Status AppointmentStatus `json:"status"`
+	Notes  sql.NullString    `json:"notes"`
 }
 
-func (q *Queries) UpdateAppointmentStatus(ctx context.Context, arg UpdateAppointmentStatusParams) (Appointment, error) {
-	row := q.db.QueryRowContext(ctx, updateAppointmentStatus, arg.ID, arg.Status)
+func (q *Queries) UpdateAppointment(ctx context.Context, arg UpdateAppointmentParams) (Appointment, error) {
+	row := q.db.QueryRowContext(ctx, updateAppointment, arg.ID, arg.Status, arg.Notes)
 	var i Appointment
 	err := row.Scan(
 		&i.ID,
@@ -1152,23 +1413,21 @@ func (q *Queries) UpdateAppointmentStatus(ctx context.Context, arg UpdateAppoint
 	return i, err
 }
 
-const updateAppointment = `-- name: UpdateAppointment :one
+const updateAppointmentStatus = `-- name: UpdateAppointmentStatus :one
 UPDATE appointments
 SET status = $2,
-    notes  = $3,
     updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL
 RETURNING id, customer_id, vehicle_id, dealership_id, service_bay_id, technician_id, services, status, start_time, end_time, notes, deleted_at, created_at, updated_at
 `
 
-type UpdateAppointmentParams struct {
+type UpdateAppointmentStatusParams struct {
 	ID     uuid.UUID         `json:"id"`
 	Status AppointmentStatus `json:"status"`
-	Notes  sql.NullString    `json:"notes"`
 }
 
-func (q *Queries) UpdateAppointment(ctx context.Context, arg UpdateAppointmentParams) (Appointment, error) {
-	row := q.db.QueryRowContext(ctx, updateAppointment, arg.ID, arg.Status, arg.Notes)
+func (q *Queries) UpdateAppointmentStatus(ctx context.Context, arg UpdateAppointmentStatusParams) (Appointment, error) {
+	row := q.db.QueryRowContext(ctx, updateAppointmentStatus, arg.ID, arg.Status)
 	var i Appointment
 	err := row.Scan(
 		&i.ID,

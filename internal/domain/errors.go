@@ -15,6 +15,9 @@ var (
 	ErrNoAvailableBay        = errors.New("no available service bay for the requested time")
 	ErrNoAvailableTechnician = errors.New("no qualified technician available for the requested time")
 	ErrNoAvailableResources  = errors.New("slot taken, please choose another slot")
+	// ErrDuplicateBooking is returned by the repository when a unique or exclusion
+	// constraint fires on a plain INSERT, meaning a concurrent request won the race.
+	ErrDuplicateBooking = errors.New("booking conflict: slot already taken by a concurrent request")
 )
 
 // Entity not found errors
