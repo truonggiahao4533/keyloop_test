@@ -199,7 +199,7 @@ func (uc *AppoinmentBookingUseCase) BookAppointment(ctx context.Context, req *Ap
 
 	// Step 2: acquire a distributed lock so concurrent requests for the same
 	// (technician, bay, slot) triple are serialised at the Redis layer.
-	acquired, err := uc.locker.AcquireLock(ctx, resources.TechnicianID, resources.BayID, req.DesiredStartTime, endTime)
+	acquired, err := uc.locker.AcquireLock(ctx, resources.TechnicianID, resources.BayID, req.DesiredStartTime)
 	if err != nil {
 		return nil, fmt.Errorf("acquire lock: %w", err)
 	}
@@ -207,7 +207,7 @@ func (uc *AppoinmentBookingUseCase) BookAppointment(ctx context.Context, req *Ap
 		return nil, ErrResourceLocked
 	}
 	defer func() {
-		if releaseErr := uc.locker.ReleaseLock(ctx, resources.TechnicianID, resources.BayID, req.DesiredStartTime, endTime); releaseErr != nil {
+		if releaseErr := uc.locker.ReleaseLock(ctx, resources.TechnicianID, resources.BayID, req.DesiredStartTime); releaseErr != nil {
 			slog.WarnContext(ctx, "failed to release booking lock", "error", releaseErr)
 		}
 	}()
