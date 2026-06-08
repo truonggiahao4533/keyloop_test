@@ -213,10 +213,10 @@ type stubBookingLocker struct {
 	releaseCalls int
 }
 
-func (l *stubBookingLocker) AcquireLock(_ context.Context, _, _ string, _, _ time.Time) (bool, error) {
+func (l *stubBookingLocker) AcquireLock(_ context.Context, _, _ string, _ time.Time) (bool, error) {
 	return l.acquired, nil
 }
-func (l *stubBookingLocker) ReleaseLock(_ context.Context, _, _ string, _, _ time.Time) error {
+func (l *stubBookingLocker) ReleaseLock(_ context.Context, _, _ string, _ time.Time) error {
 	l.releaseCalls++
 	return nil
 }

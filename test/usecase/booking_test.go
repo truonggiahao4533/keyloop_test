@@ -47,12 +47,12 @@ type spyLocker struct {
 	releaseCalls int
 }
 
-func (l *spyLocker) AcquireLock(_ context.Context, _, _ string, _, _ time.Time) (bool, error) {
+func (l *spyLocker) AcquireLock(_ context.Context, _, _ string, _ time.Time) (bool, error) {
 	l.acquireCalls++
 	return l.acquired, l.acquireErr
 }
 
-func (l *spyLocker) ReleaseLock(_ context.Context, _, _ string, _, _ time.Time) error {
+func (l *spyLocker) ReleaseLock(_ context.Context, _, _ string, _ time.Time) error {
 	l.releaseCalls++
 	return nil
 }
